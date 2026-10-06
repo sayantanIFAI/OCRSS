@@ -44,7 +44,7 @@ scrape_configs:
 | `cdi_gpu_memory_used_bytes{gpu}`, `cdi_gpu_memory_total_bytes{gpu}` | gauge | GPU memory |
 | `cdi_job_seconds` | histogram | E10-S2: a job's time from upload to review, hold or stop. Buckets 30 s to 30 min, with 300 s (the ADR-0002 SLA) exact |
 | `cdi_job_oldest_running_seconds` | gauge | E10-S2: age of the oldest job still running, so an SLA breach shows while it happens |
-| `cdi_vlm_oom_total{where}` | counter | E10-S2: CUDA out-of-memory in the gateway: `load` (7B -> 3B fallback), `batch` (split into singles), `generate` (a call failed) |
+| `cdi_vlm_oom_total{where}` | counter | E10-S2: CUDA out-of-memory in the gateway: `load` (primary -> fallback model), `batch` (split into singles), `generate` (a call failed) |
 | `cdi_extractions_total{outcome}` | counter | E10-S2: S4 extractions, `complete` or `partial` (schema-invalid, held for review) |
 | `cdi_fact_confidence{fact_type}` | histogram | E10-S4: calibrated confidence per fact at the S6 gate. Buckets 0.5 to 1.0, with the gate lines exact (0.95 audit, 0.985 auto-accept); `fact_type` is from the fixed `metrics.FACT_TYPES` list or `other`. Feeds the drift alert CdiConfidenceDrift |
 | `cdi_model_extractions_total{role,outcome}` | counter | E10-S5: S4 extractions per serving side (`primary` / `canary`): `complete`, `partial`, `failed` |

@@ -8,7 +8,8 @@
   transcription request and it echoes the document lines.
 * ``hf`` — transformers ``AutoModelForImageTextToText`` running Qwen2.5-VL-7B in bf16 with sdpa
   attention and a ``max_pixels`` cap (VRAM bound). Lazy-loads on the first request (~35 s on the
-  pod) and falls back 7B -> 3B on CUDA out-of-memory. One forward pass at a time (a lock).
+  pod) and loads the fallback model (Qwen2-VL-7B) on CUDA out-of-memory. One forward pass at a
+  time (a lock).
   ``hf`` cannot lock decoding to a grammar (that is ``vllm``, E2-S3), so a request's
   ``json_schema`` is shown to the model instead: :func:`with_schema` appends the schema's exact
   key layout to the prompt. Without it the model invents its own key names and wrappers, and the
@@ -536,8 +537,9 @@ def _load_with_fallback(load: Callable[[str], Any], settings: Settings,
 
     The fallback loads only after the ``except`` block has ended: until then the caught error's
     traceback holds the loader's frames, and with them the half-built primary's weights, so
-    nothing can be freed (Colab T4, 2026-09-26: the 7B took 14.4 of 14.6 GiB, and the 3B then
-    ran out of memory on what the failed 7B still held)."""
+    nothing can be freed (Colab T4, 2026-09-26: the 7B took 14.4 of 14.6 GiB, and the fallback
+    then ran out of memory on what the failed 7B still held). The fallback has the same size as
+    the primary, so it only helps once the memory the primary needed is free again."""
     primary, fallback = settings.vlm_model_id, settings.vlm_fallback_model_id
     try:
         return load(primary), primary

@@ -47,7 +47,7 @@ All three use torch 2.8.0+cu128 and are hash-locked (`scripts/lock_pod_deps.py -
   prompt, so AWQ's scales fit the traffic the model will actually serve. For E2-S5 the corpus is
   the gold set's **training split**, never the held-out split.
 - **The benchmark uses the production path.** It runs `VLLMBackend` with the gateway's engine
-  settings, chat prompt, image handling and XGrammar lock. The 7B→3B fallback is turned off, so
+  settings, chat prompt, image handling and XGrammar lock. The OOM fallback is turned off, so
   a variant that does not fit fails instead of quietly measuring another model.
 
 ## Data rule

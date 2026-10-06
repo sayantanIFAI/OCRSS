@@ -17,7 +17,8 @@ uses the same scripts (`infra/runpod/*.sh`); nothing about them is RunPod-only a
 Without a GPU the host can run `CDI_MLSERVE_BACKEND=stub` (for checks only — no real extraction).
 
 **Test hosts below 24 GB** (e.g. a Colab T4, 15 GB; owner, 2026-09-26): the 7B's bf16 weights
-(~16 GB) do not fit, so the gateway falls back to the 3B. To test the 7B there, set
+(~16 GB) do not fit, and the fallback model (Qwen2-VL-7B, the same size) does not fit either: the
+gateway serves nothing. To run a 7B there, set
 `CDI_VLM_QUANTIZE=8bit` (bitsandbytes LLM.int8 weights, ~9–11 GB; `start_mlserve.sh` installs the
 pinned wheel) and cap the image size, e.g. `CDI_VLM_MAX_PIXELS_OCR=1003520` (1 MP), so a page's
 activations fit beside the weights. Results from such a host are a demo, never a measurement: the

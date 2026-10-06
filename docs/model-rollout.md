@@ -11,7 +11,7 @@ allows it. **One command** undoes any of it. Everything is `python -m cdi_adapte
 |---|---|
 | `model_version` | One row per registered version: model id, **pinned revision**, backend, quantization, and its E2-S7 offline eval report. A version name is never reused for another model. |
 | `model_rollout` | Append-only log. Each row is a full routing state: primary version + gateway URL, and optionally a canary version + URL + share (%). The latest row is live. UPDATE and DELETE are refused by a trigger, so the history a rollback reads cannot be rewritten. Every change also writes `audit_log`. |
-| Gateways | One `mlserve` process per version, on its own 127.0.0.1 port. Its `/healthz` reports `version`, `model`, `backend`. A version is only put in the rollout when its gateway reports exactly that version, model and backend (a 7B that fell back to the 3B after an OOM does not pass). |
+| Gateways | One `mlserve` process per version, on its own 127.0.0.1 port. Its `/healthz` reports `version`, `model`, `backend`. A version is only put in the rollout when its gateway reports exactly that version, model and backend (a primary that fell back to the fallback model after an OOM does not pass). |
 | Router (web app) | Per document: `sha256(document id) mod 100 < canary %` goes to the canary, the rest to the primary. The same document always lands on the same side. The state is re-read every `CDI_MODEL_ROUTE_TTL_S` (5 s), so no restart is needed. If the database is unreachable, the last known state is kept. |
 | Canary fallback | A canary call that fails (unreachable or 5xx) is sent to the primary. The document is not lost, and `cdi_model_canary_fallbacks_total` counts it. A 4xx (a refused grammar) is an answer and is not retried elsewhere. |
 | Provenance | `extraction.model_version` / `model_name` = the version and model that answered; `pipeline_run.model_version` = the side the document was routed to. |
@@ -81,8 +81,8 @@ primary: _partial and failed extractions" (`cdi_model_canary_percent`,
 ## GPU memory
 
 Each version is its own process on the GPU. On one 24 GB L4, a 7B (~17 GB) and a second 7B do not
-fit together. A canary there needs a quantized model (E2-S6), a 3B, or a second GPU (E9-S4 /
-E13-S6). On the 32 GB design target, a 7B next to a 4-bit 7B is expected to fit (about 17 + 6 GB
+fit together. A canary there needs a quantized model (E2-S6 or `CDI_VLM_QUANTIZE=8bit`), or a second GPU
+(E9-S4 / E13-S6). On the 32 GB design target, a 7B next to a 4-bit 7B is expected to fit (about 17 + 6 GB
 of weights); check it with the E1-S7 load test first.
 
 ## Tests and drill
@@ -99,4 +99,5 @@ of weights); check it with the E1-S7 load test first.
   - the log cannot be rewritten;
   - `serve` starts a real gateway process.
 - `scripts/model_rollout_drill.py`: the same drill with real models on the GPU (Colab / the pod).
-  It uses the same 3B weights as two versions, because two different 7B models do not fit one L4.
+  It uses the same weights as two versions; two 7B copies do not fit one 24 GB L4 in bf16, so run it
+  with `CDI_VLM_QUANTIZE=8bit` there or on a larger GPU.

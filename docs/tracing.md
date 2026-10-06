@@ -41,7 +41,7 @@ Useful Loki queries (LogQL):
 ```logql
 {service_name="cdi-webapp"} | trace_id = "<trace id>"          # one job's web-app lines
 {service_name=~"cdi-webapp|cdi-mlserve"} |= "extract_failed"      # failures across services
-{service_name="cdi-mlserve"} |= "vlm_oom_fallback"                # the 7B -> 3B fallbacks
+{service_name="cdi-mlserve"} |= "vlm_oom_fallback"                # the OOM fallbacks (primary -> fallback model)
 ```
 
 Or directly, on the host:

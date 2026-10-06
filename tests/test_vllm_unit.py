@@ -123,7 +123,7 @@ def test_out_of_memory_falls_back_to_the_3b_model() -> None:
 
     def factory(model_id: str, s: Settings) -> FakeEngine:
         tried.append(model_id)
-        if "7B" in model_id:
+        if model_id == "Qwen/Qwen2.5-VL-7B-Instruct":
             raise OutOfMemoryError("CUDA out of memory")
         return engine
 
@@ -134,8 +134,8 @@ def test_out_of_memory_falls_back_to_the_3b_model() -> None:
         sampling=lambda n, g=None: None,
     )
     be.generate("x")
-    assert tried == ["Qwen/Qwen2.5-VL-7B-Instruct", "Qwen/Qwen2.5-VL-3B-Instruct"]
-    assert be.model == "Qwen/Qwen2.5-VL-3B-Instruct"
+    assert tried == ["Qwen/Qwen2.5-VL-7B-Instruct", "Qwen/Qwen2-VL-7B-Instruct"]
+    assert be.model == "Qwen/Qwen2-VL-7B-Instruct"
 
 
 def test_other_start_up_errors_are_not_hidden() -> None:

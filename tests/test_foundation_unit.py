@@ -28,7 +28,7 @@ def test_settings_defaults_match_architecture_section_9(monkeypatch):
     assert (s.mlserve_url, s.mlserve_port) == ("http://127.0.0.1:8077", 8077)
     assert s.mlserve_backend == "stub"  # code default; the pod sets hf (TECH_STACK §8)
     assert s.vlm_model_id == "Qwen/Qwen2.5-VL-7B-Instruct"
-    assert s.vlm_fallback_model_id == "Qwen/Qwen2.5-VL-3B-Instruct"
+    assert s.vlm_fallback_model_id == "Qwen/Qwen2-VL-7B-Instruct"
     assert s.vlm_max_pixels_ocr == 2_000_000
     assert s.fast_classify is True
     assert s.extract_retries == 1

@@ -156,7 +156,7 @@ def test_the_gateway_reports_the_version_it_was_started_for():
     v = {"version": "stub-2026.09", "model_id": "stub-keyword-responder", "backend": "stub"}
     assert h["version"] == "stub-2026.09" and ops.serves(h, v)
     assert not ops.serves({**h, "version": "other"}, v)
-    assert not ops.serves({**h, "model": "Qwen/Qwen2.5-VL-3B-Instruct"}, v)  # an OOM fallback
+    assert not ops.serves({**h, "model": "Qwen/Qwen2-VL-7B-Instruct"}, v)  # an OOM fallback
     assert not ops.serves(None, v)
 
 
@@ -252,5 +252,5 @@ def test_the_pinned_revision_applies_to_the_registered_model_only():
 
     s = Settings(vlm_model_id="Qwen/A", vlm_model_revision="abc123")
     assert _revision("Qwen/A", s) == "abc123"
-    assert _revision("Qwen/Qwen2.5-VL-3B-Instruct", s) is None  # the OOM fallback: unpinned
+    assert _revision("Qwen/Qwen2-VL-7B-Instruct", s) is None  # the OOM fallback: unpinned
     assert _revision("Qwen/A", Settings(vlm_model_id="Qwen/A", vlm_model_revision="")) is None

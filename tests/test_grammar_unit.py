@@ -23,8 +23,8 @@ from cdi_adapter.mlserve import grammar as g
 
 ROOT = Path(__file__).resolve().parents[1]
 EXTRACTION = [n for n in schema_names() if n != "common.defs"]
-TOKENIZER_REVISION = "66285546d2b821cf421d4f5eb2576359d3770cd3"
-TOKENIZER = "Qwen/Qwen2.5-VL-3B-Instruct"  # the 7B uses the same vocabulary
+TOKENIZER_REVISION = "cc594898137f460bfe9f0759e9844b3ce807cfb5"
+TOKENIZER = "Qwen/Qwen2.5-VL-7B-Instruct"  # the primary model's own tokenizer
 
 
 def _obj(props: dict[str, Any]) -> dict[str, Any]:

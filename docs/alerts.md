@@ -52,12 +52,14 @@ A job took, or is taking, longer than the 5-minute SLA.
 
 ## CdiGpuOom
 
-The gateway ran out of GPU memory. It never drops the work: a model load falls back 7B → 3B, a
+The gateway ran out of GPU memory. It never drops the work: a model load falls back to the fallback model (Qwen2-VL-7B), a
 batch is split into single calls (E2-S8), a single call fails and is retried by the client.
 
 1. See where it happened, on the gateway's metrics:
    `curl -s 127.0.0.1:8077/metrics | grep cdi_vlm_oom_total` (the `where` label):
-   - `load`: the 7B did not fit, the **3B is now serving**, and quality is lower. Check
+   - `load`: the primary did not fit and the **fallback (Qwen2-VL-7B) is now serving**: an older
+     model, so quality may be lower, and it needs as much memory as the primary (if it did not
+     fit either, no model is served). Check
      `curl -s 127.0.0.1:8077/healthz` (`model`). Find what else holds GPU memory (`nvidia-smi`) and
      restart the gateway (`bash infra/runpod/start_mlserve.sh` after stopping it) so the 7B loads.
    - `batch`: batches are too large for the free memory. Lower `CDI_EXTRACT_BATCH_MAX` (E2-S8)
@@ -66,7 +68,7 @@ batch is split into single calls (E2-S8), a single call fails and is retried by 
      accuracy (E2-S7); the page image stays as evidence either way.
 2. **Grafana → "GPU memory"**: memory near the total with no traffic means a leak or another
    process; `nvidia-smi` names it.
-3. Documents extracted by the 3B while it served are marked with that model in their provenance
+3. Documents extracted by the fallback while it served are marked with that model in their provenance
    (`extraction.model_name`); nothing extra is needed, the gate treats them the same.
 
 ## CdiQueueBacklog
@@ -88,9 +90,9 @@ More documents are waiting for extraction than can finish inside the SLA.
 More model outputs than usual fail the schema (`_partial`). Safety is not at risk (the S6 gate
 holds every `_partial` fact for review), but reviewers get more work and quality has regressed.
 
-1. **What changed?** A model (`CDI_VLM_MODEL_ID`, the 3B fallback after an OOM), a prompt, a
+1. **What changed?** A model (`CDI_VLM_MODEL_ID`, the fallback model after an OOM), a prompt, a
    schema, or the documents themselves (a new clinic, a new form, poor scans).
-   - `curl -s 127.0.0.1:8077/healthz`: is the 3B serving? Then see [CdiGpuOom](#cdigpuoom).
+   - `curl -s 127.0.0.1:8077/healthz`: is the fallback serving? Then see [CdiGpuOom](#cdigpuoom).
    - Recent deployments: roll back a model or prompt change (E10-S5 when it exists).
 2. Look at the latest `_partial` extractions: `extraction` rows with `is_partial = true`, the
    `_errors` in their payload, `model_name`, and the document types. One type failing points at
@@ -113,7 +115,7 @@ It is the earliest sign of a model, prompt, OCR or input change.
      **human-override rate**: rising overrides on accepted facts mean the confidences are no longer
      calibrated. Tell the owner; recalibration is E4-S3.
 2. **What changed?** The same checks as [CdiPartialRateAboveBaseline](#cdipartialrateabovebaseline):
-   the model serving (`/healthz` model, a 3B fallback after an OOM), a prompt or schema change, the
+   the model serving (`/healthz` model, the fallback model after an OOM), a prompt or schema change, the
    OCR engine, or the documents (a new clinic or form, scan quality). `_partial` is part of the
    calibration, so a `_partial` spike also moves confidence down.
 3. **"Unmapped-code rate"** rising at the same time points at new vocabulary (a new specialty,

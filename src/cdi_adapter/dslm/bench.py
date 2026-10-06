@@ -10,7 +10,7 @@ Two commands, each in the venv it needs:
     python -m cdi_adapter.dslm.bench compare bf16.json awq.json --archive docs/bench/e2-s6
 
 ``run`` replays the corpus through the production ``VLLMBackend`` (same engine settings, chat
-prompt, image handling and XGrammar lock as the gateway), with the 7B->3B fallback switched off so
+prompt, image handling and XGrammar lock as the gateway), with the OOM fallback switched off so
 a variant that does not fit fails instead of quietly measuring another model. It records:
 
 * **extract-seconds/doc**: each request alone, after one warm-up request (median and p95)
@@ -100,7 +100,7 @@ def run_variant(
     rows = doc["requests"]
     if not rows:
         raise ValueError("the corpus has no requests")
-    # no silent 7B->3B fallback: a variant that does not fit must fail, not measure another model
+    # no silent OOM fallback: a variant that does not fit must fail, not measure another model
     s = settings.model_copy(update={"mlserve_backend": "vllm", "vlm_model_id": model,
                                     "vlm_fallback_model_id": model})  # fmt: skip
     before = gpu()

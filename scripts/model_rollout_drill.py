@@ -7,10 +7,11 @@ synthetic documents (no patient data) through the web app's router:
   -> canary B again -> promote -> ROLLBACK (back to A) -> promote again, stop A's gateway
   -> ROLLBACK (A's gateway started again, then switched)
 
-Two different 7B models do not fit one 24 GB L4 together, so the drill registers the same 3B
-weights (at their pinned revision) as two versions: what is drilled is the routing, the record of
-which version answered, and the rollback, not a model difference. Needs PostgreSQL + MinIO and the
-GPU free of other gateways.
+The drill registers the same weights (at their pinned revision) as two versions: what is drilled
+is the routing, the record of which version answered, and the rollback, not a model difference.
+Two 7B copies need about 2 x 16 GB in bf16, so on a 24 GB L4 run it with CDI_VLM_QUANTIZE=8bit
+(about 2 x 10 GB; not measured here) or on a larger GPU. Needs PostgreSQL + MinIO and the GPU
+free of other gateways.
 
     python scripts/model_rollout_drill.py --docs 8
 """
@@ -78,7 +79,7 @@ def one_document(i: int, tag: str) -> dict[str, Any]:  # pragma: no cover - GPU 
 
 def main(argv: list[str] | None = None) -> int:  # pragma: no cover - GPU host
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--model-id", default="Qwen/Qwen2.5-VL-3B-Instruct")
+    ap.add_argument("--model-id", default="Qwen/Qwen2-VL-7B-Instruct")
     ap.add_argument("--backend", default="hf", choices=("hf", "vllm"))
     ap.add_argument("--primary-url", default="http://127.0.0.1:8079")
     ap.add_argument("--canary-url", default="http://127.0.0.1:8078")
@@ -106,7 +107,7 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - GPU host
         return rows
 
     rev = revision_of(args.model_id)
-    a, b = "drill-3b-a", "drill-3b-b"
+    a, b = "drill-a", "drill-b"
     for v in (a, b):
         ops.register(actor="drill", version=v, model_id=args.model_id, revision=rev,
                      backend=args.backend, notes="E10-S5 drill: same weights")  # fmt: skip

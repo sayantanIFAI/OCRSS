@@ -434,14 +434,14 @@ RunPod is the pilot. Production needs a host whose region is documented as India
 `Must · BLOCKER · 4 d · 8 pts · Deps: E1-S3 · Arch ✔ §3.4, §14 #1a · DoD-CODE`
 - [ ] `CDI_MLSERVE_BACKEND=vllm` serves the same `/vlm/generate` contract; `hf` selectable with one env flip. **Built; verified locally with a fake engine; not yet run with real vLLM (needs the pod).**
   - `VLLMBackend` in `mlserve/backends.py`: `AsyncLLMEngine` on its own event-loop thread, so concurrent gateway requests are batched while `generate` stays synchronous.
-  - Engine settings: Qwen2.5-VL chat template, image as `multi_modal_data`, greedy sampling as `hf`, `max_pixels` cap, 7B→3B fallback on OOM. New settings `CDI_VLLM_GPU_MEMORY_UTILIZATION` / `_MAX_MODEL_LEN` / `_MAX_NUM_SEQS` (0.88 / 16384 / 4).
+  - Engine settings: Qwen2.5-VL chat template, image as `multi_modal_data`, greedy sampling as `hf`, `max_pixels` cap, OOM fallback model (a 3B when built; Qwen2-VL-7B since 2026-10-06). New settings `CDI_VLLM_GPU_MEMORY_UTILIZATION` / `_MAX_MODEL_LEN` / `_MAX_NUM_SEQS` (0.88 / 16384 / 4).
   - Pod: `bootstrap_pod.sh` step 3b builds `.venv-vllm` from its lock (and pinned cu128 torchaudio) and drift-checks it in `manifests-vllm`; `start_mlserve.sh` starts the gateway from it when `vllm` is selected.
   - `lock_pod_deps.py --target vllm`.
   - Tests (`tests/test_vllm_unit.py`, 11):
     - same request/response and `/healthz` contract
     - 4 concurrent requests all in flight together (wall < 2× one request), while `hf` peaks at 1
     - greedy sampling, chat prompt and image passed
-    - OOM → 3B; other start-up errors surface
+    - OOM → fallback model; other start-up errors surface
     - one env value selects `stub` / `hf` / `vllm`
     - vLLM is never imported unless used
     - the lock is exact and hashed (vllm 0.11.0, transformers 4.x, no torch family); the pipeline lock keeps transformers 5.16.1
@@ -506,7 +506,7 @@ RunPod is the pilot. Production needs a host whose region is documented as India
   - `cdi_quantization.json` records source, recipe, calibration digest and tool versions.
   - The output serves with no new setting: `CDI_VLM_MODEL_ID=<dir>` (vLLM detects the format).
 - [ ] Measure latency/VRAM vs the bf16 7B baseline: extract-seconds/doc and concurrent slots at 32 GB. **Tool built; needs the checkpoint and the target GPU.**
-  - `cdi_adapter.dslm.bench run` replays the corpus through the production `VLLMBackend`: same engine settings, prompt, image handling and XGrammar lock as the gateway. The 7B→3B fallback is off, so a variant that does not fit fails. One process per variant.
+  - `cdi_adapter.dslm.bench run` replays the corpus through the production `VLLMBackend`: same engine settings, prompt, image handling and XGrammar lock as the gateway. The OOM fallback is off, so a variant that does not fit fails. One process per variant.
   - It records:
     - s/doc (median/p95, after a warm-up)
     - docs/min at concurrency 1/2/4

@@ -254,7 +254,7 @@ GET  /healthz       → { status, backend, model, device, loaded, configured_bac
 
 | Backend (`CDI_MLSERVE_BACKEND`) | Use |
 |---|---|
-| `hf` *(current; to be deprecated)* | transformers `AutoModelForImageTextToText` = Qwen2.5-VL-7B, bf16, `attn_implementation="sdpa"`, `max_pixels` capped (2 MP) to bound VRAM; **lazy-load on first request**, 7B→3B fallback on OOM. One forward pass at a time — this is why Phase 2 (extract) is serialised. |
+| `hf` *(current; to be deprecated)* | transformers `AutoModelForImageTextToText` = Qwen2.5-VL-7B, bf16, `attn_implementation="sdpa"`, `max_pixels` capped (2 MP) to bound VRAM; **lazy-load on first request**, fallback model (Qwen2-VL-7B) on OOM. One forward pass at a time — this is why Phase 2 (extract) is serialised. |
 | `vllm` *(built + A/B tested, then reverted — see below)* | `AsyncLLMEngine`, Qwen2.5-VL, paged KV cache + continuous batching, `guided_json` / XGrammar grammar-locked decoding. 32 GB ⇒ ~15 GB weights + ~12–14 GB KV ⇒ **3–4 concurrent page extractions**. Long image prefill still serialises on compute, so the projected Phase-2 gain was 2–3×, not 5×. **Measured result: no improvement** — the same 3-doc job stayed at 72–74 s wall. Root cause: the per-request compute floor (§7.4) is unchanged by batching when documents arrive too sparsely to actually batch, XGrammar adds token-level decode overhead, and the Phase-2 fan-out (`_extract_sem`/`_stage2_pool` in `webapp/jobs.py`) only overlapped 2 of the 3 documents in practice. `CDI_MLSERVE_BACKEND` was reverted to `hf`; the `vllm` code stays in the tree, dormant, not the active path. |
 | `stub` | deterministic keyword responder — CI / no-GPU |
 
@@ -1053,7 +1053,7 @@ Postgres.
 | `CDI_WEBAPP_PORT` | **8888** | the RunPod-proxied port |
 | `CDI_MLSERVE_URL` / `_PORT` | `http://127.0.0.1:8077` / 8077 | model gateway |
 | `CDI_MLSERVE_BACKEND` | `hf` | `hf` \| `stub` (`vllm` planned — §7.4) |
-| `CDI_VLM_MODEL_ID` / `_FALLBACK_MODEL_ID` | `Qwen/Qwen2.5-VL-7B-Instruct` / `…-3B-…` | VLM + OOM fallback |
+| `CDI_VLM_MODEL_ID` / `_FALLBACK_MODEL_ID` | `Qwen/Qwen2.5-VL-7B-Instruct` / `Qwen/Qwen2-VL-7B-Instruct` | VLM + OOM fallback |
 | `CDI_VLM_MAX_PIXELS_OCR` | 2 000 000 | processor cap (VRAM bound) |
 | `CDI_FAST_CLASSIFY` | `true` | S2 scored heuristic first; VLM only on ambiguous/handwritten |
 | `CDI_EXTRACT_RETRIES` | `1` | S4 VLM re-tries on schema failure (schemas relaxed → rare) |

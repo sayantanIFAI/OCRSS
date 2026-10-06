@@ -375,18 +375,18 @@ def test_hf_lazy_loads_once_on_first_request():
 
 def test_hf_falls_back_7b_to_3b_on_oom():
     def loader(mid, s):
-        if "7B" in mid:
+        if mid == "Qwen/Qwen2.5-VL-7B-Instruct":
             raise OutOfMemoryError("CUDA out of memory")
         return ("M3", "P3")
 
     be = HFBackend(_settings(), loader=loader, runner=lambda *a: "ok")
     assert be.generate("x") == "ok"
-    assert be.model == "Qwen/Qwen2.5-VL-3B-Instruct"
+    assert be.model == "Qwen/Qwen2-VL-7B-Instruct"
 
 
 def test_hf_fallback_loads_only_after_the_failed_primary_is_released():
     """Colab T4, 2026-09-26: the half-built 7B was still held by the caught error's traceback
-    while the 3B loaded, so the 3B ran out of memory too and no model was served at all."""
+    while the fallback loaded, so the fallback ran out of memory too and nothing was served."""
 
     class HalfLoaded:  # the 7B weights materialised before the OOM
         pass
@@ -394,17 +394,17 @@ def test_hf_fallback_loads_only_after_the_failed_primary_is_released():
     held = []
 
     def loader(mid, s):
-        if "7B" in mid:
+        if mid == "Qwen/Qwen2.5-VL-7B-Instruct":
             weights = HalfLoaded()
             weights.graph = weights  # module graphs hold reference cycles
             held.append(weakref.ref(weights))
             raise OutOfMemoryError("CUDA out of memory")
-        assert held[0]() is None, "the failed 7B is still alive while the 3B loads"
+        assert held[0]() is None, "the failed 7B is still alive while the fallback loads"
         return ("M3", "P3")
 
     be = HFBackend(_settings(), loader=loader, runner=lambda *a: "ok")
     assert be.generate("x") == "ok"
-    assert be.loaded and be.model == "Qwen/Qwen2.5-VL-3B-Instruct"
+    assert be.loaded and be.model == "Qwen/Qwen2-VL-7B-Instruct"
 
 
 def test_hf_loads_bf16_by_default_and_int8_only_when_asked(monkeypatch):

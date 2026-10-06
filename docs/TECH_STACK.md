@@ -28,7 +28,7 @@ Compose deployment · **Declared only** = listed as a dependency but never impor
 | Background processing | Redis 7, Celery, watchdog, `concurrent.futures` thread pools |
 | Document imaging | pypdfium2, OpenCV, NumPy, Pillow |
 | OCR | RapidOCR, ONNX Runtime |
-| AI / model serving | Qwen2.5-VL-7B-Instruct (+3B fallback), PyTorch + CUDA, Hugging Face transformers, accelerate, qwen-vl-utils, einops, sentencepiece, httpx; vLLM 0.11.0 + XGrammar (E2-S1: rebuilt, in the gateway's own venv; `hf` stays active) |
+| AI / model serving | Qwen2.5-VL-7B-Instruct (+Qwen2-VL-7B-Instruct fallback), PyTorch + CUDA, Hugging Face transformers, accelerate, qwen-vl-utils, einops, sentencepiece, httpx; vLLM 0.11.0 + XGrammar (E2-S1: rebuilt, in the gateway's own venv; `hf` stays active) |
 | Structured-output safety | JSON Schema (`jsonschema` + `referencing`) |
 | Clinical standards | HL7 FHIR R4, ABDM / NRCeS FHIR IG, ABHA, SNOMED CT, LOINC, ICD-10, UCUM; HL7 FHIR Validator (optional, Java) |
 | Terminology matching | Python `difflib` |
@@ -274,7 +274,7 @@ Compose deployment · **Declared only** = listed as a dependency but never impor
 
 ## 8. AI / model serving (S2 fallback, S3 handwriting, S4 extraction)
 
-### Qwen2.5-VL-7B-Instruct (fallback: Qwen2.5-VL-3B-Instruct) — Active
+### Qwen2.5-VL-7B-Instruct (fallback: Qwen2-VL-7B-Instruct) — Active
 - **What:** An open-weights (Apache-2.0) vision-language model that reads page images and text.
 - **Why:** Does the tasks OCR text alone can't: **schema-locked structured extraction** (S4),
   **handwriting transcription** (S3), and **classification of ambiguous pages** (S2). Open weights
@@ -284,7 +284,10 @@ Compose deployment · **Declared only** = listed as a dependency but never impor
   `CDI_VLM_MAX_PIXELS_OCR` caps VRAM).
 - **When:** On every S4 extraction; on S3 for pages classified as handwritten
   (`CDI_HANDWRITTEN_USES_VLM`); on S2 only when the keyword heuristic is inconclusive
-  (`CDI_FAST_CLASSIFY`). Lazy-loaded on first request (~35 s); falls back 7B → 3B on out-of-memory.
+  (`CDI_FAST_CLASSIFY`). Lazy-loaded on first request (~35 s); loads the fallback model on
+  out-of-memory. The fallback, Qwen2-VL-7B-Instruct, is Apache-2.0 (a `LICENSE` file ships in its
+  repository; checked 2026-10-06) and has the same size as the primary, so it only helps once the
+  primary's memory is free again; use `CDI_VLM_QUANTIZE=8bit` on smaller GPUs.
 
 ### PyTorch (+ CUDA) — Active
 - **What:** Deep-learning framework; CUDA is NVIDIA's GPU compute platform.

@@ -48,7 +48,7 @@
 
 ### AB-04 · Model gateway and structured output — **Done**
 *Plan block E0-S4.*
-- **Code:** `schemas/*.json`, `ml/client.py` (`vlm_json`: extract → repair → validate → one retry → `_partial`), `mlserve/app.py`, `mlserve/backends.py` (deterministic stub; Qwen2.5-VL `hf` backend with lazy load and 7B→3B fallback).
+- **Code:** `schemas/*.json`, `ml/client.py` (`vlm_json`: extract → repair → validate → one retry → `_partial`), `mlserve/app.py`, `mlserve/backends.py` (deterministic stub; Qwen2.5-VL `hf` backend with lazy load and an OOM fallback model (Qwen2-VL-7B)).
 - **Tests:** `test_ml_unit.py` (77). Also run live as a native process over HTTP.
 - **Open:** one real Qwen2.5-VL call on the GPU pod (tracked in AB-16).
 

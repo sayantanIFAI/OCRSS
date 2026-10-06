@@ -273,7 +273,7 @@ def test_gpu_out_of_memory_is_counted_where_it_happens():
         pass
 
     def loader(mid, s):
-        if "7B" in mid:
+        if mid == "Qwen/Qwen2.5-VL-7B-Instruct":
             raise OutOfMemoryError("CUDA out of memory")
         return "M", "P"
 
@@ -285,7 +285,7 @@ def test_gpu_out_of_memory_is_counted_where_it_happens():
     gen0 = value("cdi_vlm_oom_total", where="generate")
     hf = HFBackend(Settings(_env_file=None, mlserve_backend="hf"),  # type: ignore[call-arg]
                    loader=loader, runner=lambda *a: "ok", batch_runner=boom)  # fmt: skip
-    hf.generate("x")  # 7B does not fit -> the 3B serves
+    hf.generate("x")  # the primary does not fit -> the fallback serves
     assert value("cdi_vlm_oom_total", where="load") == load0 + 1
     hf.generate_batch([GenItem("a"), GenItem("b")])  # the batch is split, not dropped
     assert value("cdi_vlm_oom_total", where="batch") == batch0 + 1

@@ -373,7 +373,7 @@ def test_a_variant_that_does_not_fit_fails_instead_of_measuring_the_3b(tmp_path:
             gpu=_gpu(),
             backend_factory=backend,
         )
-    assert "Qwen/Qwen2.5-VL-3B-Instruct" not in tried  # no silent fallback
+    assert "Qwen/Qwen2-VL-7B-Instruct" not in tried  # no silent fallback
 
 
 def test_the_quantization_manifest_travels_with_the_result(tmp_path: Path) -> None:

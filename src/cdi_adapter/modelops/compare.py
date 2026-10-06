@@ -146,7 +146,7 @@ def compare(conn: Connection) -> dict[str, Any]:
                      + ": the gold-set metrics are not compared")  # fmt: skip
     for side in (canary, primary):
         other = [m for m in side["served_by"] if m != side["model_id"]]
-        if other:  # e.g. the 3B OOM fallback answered for a 7B version
+        if other:  # e.g. the OOM fallback model answered for the primary's version
             notes.append(f"{side['version']} was also served by {', '.join(other)}")
     return {"since": since.isoformat() if since else None, "canary_percent": st.canary_percent,
             "canary": canary, "primary": primary, "promote_ok": ok, "blocking": why,

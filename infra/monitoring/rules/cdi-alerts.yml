@@ -21,7 +21,7 @@ groups:
           description: A job is still running after 300 s, or one finished after 300 s in the last 10 minutes.
           runbook_url: docs/alerts.md#cdislawindowbreach
 
-      # The GPU ran out of memory: a model load fell back 7B -> 3B, a batch was split, or a call failed.
+      # The GPU ran out of memory: a model load fell back to the fallback model, a batch was split, or a call failed.
       - alert: CdiGpuOom
         expr: sum(increase(cdi_vlm_oom_total[15m])) > 0
         labels:

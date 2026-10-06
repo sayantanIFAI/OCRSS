@@ -110,7 +110,7 @@ class Settings(BaseSettings):
     mlserve_port: int = 8077
     mlserve_backend: Literal["stub", "hf", "vllm"] = "stub"
     vlm_model_id: str = "Qwen/Qwen2.5-VL-7B-Instruct"
-    vlm_fallback_model_id: str = "Qwen/Qwen2.5-VL-3B-Instruct"
+    vlm_fallback_model_id: str = "Qwen/Qwen2-VL-7B-Instruct"
     # model registry (backlog E10-S5): a gateway started for a registered version loads the model
     # at its pinned revision and reports the version on /healthz; the web app routes documents to
     # the primary or the canary gateway from the rollout log, re-read every model_route_ttl_s
