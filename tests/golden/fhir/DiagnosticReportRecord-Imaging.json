@@ -1,0 +1,399 @@
+{
+  "entry": [
+    {
+      "fullUrl": "urn:uuid:13a21cff-db0c-5c12-9248-46fff4b060bc",
+      "resource": {
+        "author": [
+          {
+            "reference": "urn:uuid:79941f09-05d1-5b19-8eb6-04ae34d8456d"
+          }
+        ],
+        "custodian": {
+          "reference": "urn:uuid:66c0d3a9-c723-5c30-9792-4fe5880edc7e"
+        },
+        "date": "2026-08-12T10:00:00+00:00",
+        "encounter": {
+          "reference": "urn:uuid:32a78c0c-ca58-50f5-af44-3deba6996c1a"
+        },
+        "id": "13a21cff-db0c-5c12-9248-46fff4b060bc",
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/DiagnosticReportRecord"
+          ]
+        },
+        "resourceType": "Composition",
+        "section": [
+          {
+            "code": {
+              "coding": [
+                {
+                  "code": "721981007",
+                  "display": "Diagnostic studies report",
+                  "system": "http://snomed.info/sct"
+                }
+              ]
+            },
+            "entry": [
+              {
+                "reference": "urn:uuid:f74e082d-8fc9-5d23-aa19-97d401f68194",
+                "type": "DiagnosticReport"
+              },
+              {
+                "reference": "urn:uuid:78130e4b-8713-5a3f-9456-feaf2dfff94b",
+                "type": "DocumentReference"
+              }
+            ],
+            "title": "Diagnostic studies report"
+          }
+        ],
+        "status": "final",
+        "subject": {
+          "reference": "urn:uuid:3b373192-2a50-5879-b4f4-d35451854e76"
+        },
+        "title": "Diagnostic studies report",
+        "type": {
+          "coding": [
+            {
+              "code": "721981007",
+              "display": "Diagnostic studies report",
+              "system": "http://snomed.info/sct"
+            }
+          ],
+          "text": "Diagnostic studies report"
+        }
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:3b373192-2a50-5879-b4f4-d35451854e76",
+      "resource": {
+        "birthDate": "1978-03-14",
+        "gender": "female",
+        "id": "3b373192-2a50-5879-b4f4-d35451854e76",
+        "identifier": [
+          {
+            "system": "https://careflow.clinic/mpi",
+            "type": {
+              "coding": [
+                {
+                  "code": "MR",
+                  "display": "Medical record number",
+                  "system": "http://terminology.hl7.org/CodeSystem/v2-0203"
+                }
+              ],
+              "text": "Medical record number"
+            },
+            "use": "usual",
+            "value": "CFP-2026-000001"
+          },
+          {
+            "system": "https://healthid.ndhm.gov.in",
+            "type": {
+              "coding": [
+                {
+                  "code": "ABHA",
+                  "display": "Ayushman Bharat Health Account (ABHA) ID",
+                  "system": "https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-identifier-type-code"
+                }
+              ],
+              "text": "ABHA number"
+            },
+            "use": "official",
+            "value": "91-1234-5678-9012"
+          },
+          {
+            "system": "https://healthid.ndhm.gov.in/address",
+            "type": {
+              "coding": [
+                {
+                  "code": "ABHA",
+                  "display": "Ayushman Bharat Health Account (ABHA) ID",
+                  "system": "https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-identifier-type-code"
+                }
+              ],
+              "text": "ABHA address"
+            },
+            "value": "anjali.das@abdm"
+          },
+          {
+            "system": "urn:cdi:legacy-mrn",
+            "type": {
+              "coding": [
+                {
+                  "code": "MR",
+                  "display": "Medical record number",
+                  "system": "http://terminology.hl7.org/CodeSystem/v2-0203"
+                }
+              ],
+              "text": "Legacy MRN"
+            },
+            "value": "LEG-7"
+          }
+        ],
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/Patient"
+          ]
+        },
+        "name": [
+          {
+            "text": "Anjali Das"
+          }
+        ],
+        "resourceType": "Patient"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:66c0d3a9-c723-5c30-9792-4fe5880edc7e",
+      "resource": {
+        "id": "66c0d3a9-c723-5c30-9792-4fe5880edc7e",
+        "identifier": [
+          {
+            "system": "https://careflow.clinic/facility",
+            "type": {
+              "coding": [
+                {
+                  "code": "PRN",
+                  "display": "Provider number",
+                  "system": "http://terminology.hl7.org/CodeSystem/v2-0203"
+                }
+              ],
+              "text": "Facility ID"
+            },
+            "value": "CAREFLOW-POLYCLINIC-1"
+          }
+        ],
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/Organization"
+          ]
+        },
+        "name": "CareFlow Polyclinic",
+        "resourceType": "Organization"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:79941f09-05d1-5b19-8eb6-04ae34d8456d",
+      "resource": {
+        "id": "79941f09-05d1-5b19-8eb6-04ae34d8456d",
+        "identifier": [
+          {
+            "system": "https://careflow.clinic/practitioner",
+            "type": {
+              "coding": [
+                {
+                  "code": "OIN",
+                  "display": "Other identifier",
+                  "system": "https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-identifier-type-code"
+                }
+              ],
+              "text": "CareFlow practitioner id"
+            },
+            "value": "79941f09-05d1-5b19-8eb6-04ae34d8456d"
+          }
+        ],
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/Practitioner"
+          ]
+        },
+        "name": [
+          {
+            "text": "Attending clinician"
+          }
+        ],
+        "resourceType": "Practitioner"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:32a78c0c-ca58-50f5-af44-3deba6996c1a",
+      "resource": {
+        "class": {
+          "code": "AMB",
+          "display": "ambulatory",
+          "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode"
+        },
+        "id": "32a78c0c-ca58-50f5-af44-3deba6996c1a",
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/Encounter"
+          ]
+        },
+        "period": {
+          "start": "2026-08-12T09:30:00+00:00"
+        },
+        "resourceType": "Encounter",
+        "status": "finished",
+        "subject": {
+          "reference": "urn:uuid:3b373192-2a50-5879-b4f4-d35451854e76"
+        }
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:78130e4b-8713-5a3f-9456-feaf2dfff94b",
+      "resource": {
+        "content": [
+          {
+            "attachment": {
+              "contentType": "image/png",
+              "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4//8/AAX+Av6n1qTFAAAAAElFTkSuQmCC",
+              "title": "radiology_golden.png"
+            }
+          }
+        ],
+        "id": "78130e4b-8713-5a3f-9456-feaf2dfff94b",
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/DocumentReference"
+          ]
+        },
+        "resourceType": "DocumentReference",
+        "status": "current",
+        "subject": {
+          "reference": "urn:uuid:3b373192-2a50-5879-b4f4-d35451854e76"
+        },
+        "type": {
+          "text": "Scanned source document"
+        }
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:80b827bf-c1e2-566b-9c60-0dadb3d15edc",
+      "resource": {
+        "content": {
+          "contentType": "image/png",
+          "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4//8/AAX+Av6n1qTFAAAAAElFTkSuQmCC",
+          "title": "radiology_golden.png"
+        },
+        "id": "80b827bf-c1e2-566b-9c60-0dadb3d15edc",
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/Media"
+          ]
+        },
+        "resourceType": "Media",
+        "status": "completed",
+        "subject": {
+          "reference": "urn:uuid:3b373192-2a50-5879-b4f4-d35451854e76"
+        }
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:f74e082d-8fc9-5d23-aa19-97d401f68194",
+      "resource": {
+        "category": [
+          {
+            "coding": [
+              {
+                "code": "394914008",
+                "display": "Radiology",
+                "system": "http://snomed.info/sct"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "code": "18748-4",
+              "display": "Diagnostic imaging study",
+              "system": "http://loinc.org"
+            }
+          ],
+          "text": "Diagnostic imaging report"
+        },
+        "conclusion": "Lung fields clear. Cardiac size normal. Impression: normal study.",
+        "encounter": {
+          "reference": "urn:uuid:32a78c0c-ca58-50f5-af44-3deba6996c1a"
+        },
+        "id": "f74e082d-8fc9-5d23-aa19-97d401f68194",
+        "media": [
+          {
+            "link": {
+              "reference": "urn:uuid:80b827bf-c1e2-566b-9c60-0dadb3d15edc"
+            }
+          }
+        ],
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/DiagnosticReportImaging"
+          ]
+        },
+        "resourceType": "DiagnosticReport",
+        "resultsInterpreter": [
+          {
+            "reference": "urn:uuid:79941f09-05d1-5b19-8eb6-04ae34d8456d"
+          }
+        ],
+        "status": "final",
+        "subject": {
+          "reference": "urn:uuid:3b373192-2a50-5879-b4f4-d35451854e76"
+        }
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:04a80f6a-39d2-5333-8b00-7b3abe659f2f",
+      "resource": {
+        "agent": [
+          {
+            "onBehalfOf": {
+              "reference": "urn:uuid:66c0d3a9-c723-5c30-9792-4fe5880edc7e"
+            },
+            "type": {
+              "text": "assembler"
+            },
+            "who": {
+              "reference": "urn:uuid:66c0d3a9-c723-5c30-9792-4fe5880edc7e"
+            }
+          }
+        ],
+        "entity": [
+          {
+            "role": "source",
+            "what": {
+              "reference": "urn:uuid:78130e4b-8713-5a3f-9456-feaf2dfff94b"
+            }
+          }
+        ],
+        "id": "04a80f6a-39d2-5333-8b00-7b3abe659f2f",
+        "meta": {
+          "profile": [
+            "http://hl7.org/fhir/StructureDefinition/Provenance"
+          ]
+        },
+        "reason": [
+          {
+            "text": "Generated by CDI-Adapter from the scan; model stack: extractor=golden-fixture"
+          }
+        ],
+        "recorded": "2026-08-12T10:00:00+00:00",
+        "resourceType": "Provenance",
+        "target": [
+          {
+            "reference": "urn:uuid:80b827bf-c1e2-566b-9c60-0dadb3d15edc"
+          },
+          {
+            "reference": "urn:uuid:f74e082d-8fc9-5d23-aa19-97d401f68194"
+          },
+          {
+            "reference": "urn:uuid:78130e4b-8713-5a3f-9456-feaf2dfff94b"
+          }
+        ]
+      }
+    }
+  ],
+  "id": "862add2f-e883-5d7c-9133-5aef81201a2a",
+  "identifier": {
+    "system": "urn:cdi:bundle",
+    "value": "0235866b-6c09-53b3-8d40-329f34d26a92"
+  },
+  "meta": {
+    "lastUpdated": "2026-08-12T10:00:00+00:00",
+    "profile": [
+      "https://nrces.in/ndhm/fhir/r4/StructureDefinition/DocumentBundle"
+    ],
+    "versionId": "1"
+  },
+  "resourceType": "Bundle",
+  "timestamp": "2026-08-12T10:00:00+00:00",
+  "type": "document"
+}

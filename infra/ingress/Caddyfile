@@ -1,0 +1,74 @@
+# Stable ingress for the counter workflow (backlog E1-S9; ARCHITECTURE §3.3, §10, §12; risk R7).
+#
+# Runs on the ingress VM (Ubuntu 24.04, India region), installed by setup_ingress_vm.sh as
+# /etc/caddy/Caddyfile. The {$...} values come from /etc/caddy/cdi.env.
+#
+#   staff browser --TLS--> Caddy on the VM (stable hostname, Let's Encrypt certificate)
+#       --> 127.0.0.1:$CDI_INGRESS_REMOTE_PORT on the VM
+#       --> SSH remote forward, opened BY the pod (infra/runpod/start_tunnel.sh)
+#       --> webapp 127.0.0.1:8888 on whichever pod / host is live
+#
+# Replacing the pod changes nothing here: the new pod opens the same tunnel.
+{
+	email {$CDI_INGRESS_ACME_EMAIL}
+	admin localhost:2019
+}
+
+{$CDI_INGRESS_HOSTNAME} {
+	encode gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	# Staff sign in (backlog E11-S1); on top of that, only the clinic's own networks may reach the
+	# UI (defence in depth for patient data, ARCHITECTURE §12). /healthz is open so uptime monitoring can tell "backend down" apart
+	# from "ingress down"; it returns component booleans only, never patient data.
+	@outside {
+		not remote_ip {$CDI_INGRESS_ALLOW}
+		not path /healthz
+	}
+	respond @outside "CDI: this address is only reachable from the clinic network" 403 {
+		close
+	}
+
+	reverse_proxy 127.0.0.1:{$CDI_INGRESS_REMOTE_PORT} {
+		# Active check with a content marker, never the status code alone: behind RunPod a dead
+		# port answered HTTP 200 with a fake 502 page (§10.4). Same marker as start_all.sh.
+		health_uri /login
+		health_body "Agentic EMR generation"
+		health_interval 10s
+		health_timeout 5s
+		# passive: a failed dial marks the backend down at once, before the next active check
+		fail_duration 10s
+		max_fails 1
+		# uploads are streamed, not buffered, and a slow extraction response is not cut off
+		flush_interval -1
+		transport http {
+			dial_timeout 3s
+			response_header_timeout 300s
+		}
+	}
+
+	# Backend unreachable (tunnel down, pod stopped, web app dead): a real 503 with a marker and a
+	# header, so neither staff nor a monitor can mistake it for a working page.
+	handle_errors 502 503 504 {
+		header Retry-After "30"
+		header X-CDI-Ingress "backend-down"
+		respond "CDI_BACKEND_DOWN: the EMR service is not reachable right now. Please retry in a minute; if it persists, call the EMR on-call." 503 {
+			close
+		}
+	}
+
+	log {
+		output file /var/log/caddy/cdi-access.log {
+			roll_size 50MiB
+			roll_keep 10
+		}
+		format json
+	}
+}

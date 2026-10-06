@@ -1,4 +1,7 @@
-"""E1-S6: the golden-path test itself — §8.2 through S2 -> S9 on PostgreSQL with the stub model."""
+"""E1-S6: the golden-path test itself — §8.2 through S2 -> S9 on PostgreSQL with the stub model.
+
+S9 embeds each scan in its bundle (§5 S9), so the seeded run stores its rendered scans in a real
+MinIO: these tests are skipped with the reason when CDI_TEST_S3_ENDPOINT is unset."""
 
 from __future__ import annotations
 
@@ -32,7 +35,7 @@ GOLDEN_DB = "cdi_golden_test"
 
 
 @pytest.fixture
-def fresh(db_env, monkeypatch):
+def fresh(app_env, db_env, monkeypatch):
     """A dedicated database reset to head: the golden counts are defined on a fresh database."""
     monkeypatch.setenv("CDI_DATABASE_URL", db_env)  # restored after the test
     monkeypatch.setenv("CDI_MLSERVE_BACKEND", "stub")
@@ -59,7 +62,7 @@ def test_golden_run_detects_drift_on_a_real_run(fresh):
     assert gp.compare(measured, wrong) == ["prescription_00.facts: expected 10, got 9"]
 
 
-def test_cli_seeded_exits_zero_and_writes_a_report(db_env, monkeypatch, tmp_path):
+def test_cli_seeded_exits_zero_and_writes_a_report(app_env, db_env, monkeypatch, tmp_path):
     monkeypatch.setenv("CDI_DATABASE_URL", db_env)
     monkeypatch.setenv("CDI_MLSERVE_BACKEND", "stub")
     report = tmp_path / "golden.json"

@@ -1,0 +1,71 @@
+# Application-tier balancer on the pod / fallback host (backlog E10-S9; ARCHITECTURE §3.3, §12, §13).
+#
+# Started by infra/runpod/start_apptier.sh; the {$...} values come from its environment.
+#
+#   RunPod proxy / E1-S9 tunnel / clinic LAN --> Caddy :$CDI_WEBAPP_PORT (this file)
+#       --> web app instances on 127.0.0.1:$CDI_WEBAPP_BASE_PORT, +1, ... (stateless: jobs and
+#           sessions are in PostgreSQL, uploads in MinIO, so any instance serves any request)
+#
+# Plain HTTP here: TLS is terminated in front of this (RunPod's proxy, or Caddy on the E1-S9 ingress
+# VM). The instances bind 127.0.0.1 only; this balancer is the one listener on the public port,
+# as the single web app was before.
+{
+	admin 127.0.0.1:{$CDI_LB_ADMIN_PORT}
+	auto_https off
+	persist_config off
+	log {
+		output file {$CDI_LB_LOG} {
+			roll_size 50MiB
+			roll_keep 5
+		}
+		format json
+		level INFO
+	}
+}
+
+:{$CDI_WEBAPP_PORT} {
+	bind {$CDI_LB_BIND}
+
+	reverse_proxy {$CDI_WEBAPP_UPSTREAMS} {
+		# any instance serves any request: spread evenly, skipping instances that are down
+		lb_policy round_robin
+		# a request whose connection to an instance fails (the instance just died) goes to the
+		# next one within this time; a request already delivered is never replayed
+		lb_try_duration 5s
+		lb_try_interval 100ms
+
+		# ACTIVE: /readyz = this instance can make an upload durable (database, object store,
+		# queue). Content marker as well as the status: a dead port behind a proxy has answered
+		# 200 before (§10.4). Out of rotation after one failed check: within interval + timeout.
+		health_uri /readyz
+		health_status 200
+		health_body "\"ready\":true"
+		health_interval 2s
+		health_timeout 2s
+		health_fails 1
+		health_passes 2
+
+		# PASSIVE: one failed connection takes the instance out at once, before its next check.
+		# (A 503 from the app is an answer, not a dead instance: e.g. /healthz while the model
+		# gateway is down, or an upload refused because MinIO is. So no unhealthy_status.)
+		fail_duration 10s
+		max_fails 1
+
+		# uploads are streamed, not buffered; a slow answer is not cut off
+		flush_interval -1
+		transport http {
+			dial_timeout 2s
+			response_header_timeout 300s
+		}
+	}
+
+	# no instance can answer: a real 503 with a marker (the same one the E1-S9 ingress uses), so
+	# nobody mistakes it for a working page
+	handle_errors 502 503 504 {
+		header Retry-After "30"
+		header X-CDI-Ingress "backend-down"
+		respond "CDI_BACKEND_DOWN: the EMR service is not reachable right now. Please retry in a minute; if it persists, call the EMR on-call." 503 {
+			close
+		}
+	}
+}

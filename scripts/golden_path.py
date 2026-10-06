@@ -7,8 +7,10 @@ appended to `--alert-log` (the nightly run's alert channel until E10 observabili
 Modes
   full    S1 -> S9 exactly as the pipeline runs (scripts/pipeline_smoke.py over the rendered,
           scan-like samples). Needs PostgreSQL + a real MinIO (+ the GPU for --baseline real_vlm).
-  seeded  S2 -> S9 on PostgreSQL only: the §8.2 text is seeded as OCR lines (no scan, no object
-          store) and S4 runs through the same write path as `extract_document`. Stub only.
+  seeded  S2 -> S9: the §8.2 text is seeded as OCR lines and S4 runs through the same write path
+          as `extract_document`. Stub only. Needs PostgreSQL + a real MinIO: S9 embeds each
+          document's scan in its bundle (ARCHITECTURE §5 S9, attachment.data), so the text is
+          rendered to a PDF and stored at the document's key first.
 
 Baselines (in the golden file)
   stub      what the deterministic stub backend must produce (CI; no GPU)
@@ -31,6 +33,7 @@ import datetime as dt
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -64,6 +67,8 @@ def prepare_fresh_db(name: str) -> str:
     live = make_url(get_settings().database_url)
     if name == live.database:
         raise SystemExit(f"--fresh-db {name!r} is the configured database; refusing to reset it")
+    if not re.fullmatch(r"cdi_golden(?:_[a-z0-9_]+)?", name):
+        raise SystemExit("--fresh-db must be cdi_golden or cdi_golden_<test suffix>")
     target = live.set(database=name).render_as_string(hide_password=False)
     admin = create_engine(live.set(database="postgres"), isolation_level="AUTOCOMMIT")
     with admin.connect() as c:
@@ -82,6 +87,8 @@ def prepare_fresh_db(name: str) -> str:
     command.upgrade(cfg, "head")
     os.environ["CDI_DATABASE_URL"] = target
     get_settings.cache_clear()
+    # Explicit process-local test target also works with an authoritative vault/store.
+    get_settings().database_url = target
     db.reset_engine()
     return target
 
@@ -128,7 +135,10 @@ def measure(conn: Connection, docs: Mapping[str, str]) -> dict[str, Any]:
 
 def compare(measured: Mapping[str, Any], expected: Mapping[str, Any]) -> list[str]:
     """Drift lines: every expected key whose measured value differs (extra keys are ignored)."""
-    drift: list[str] = []
+    drift: list[str] = [
+        f"{name}: unexpected document in the run"
+        for name in sorted(set(measured["documents"]) - set(expected["documents"]))
+    ]
     for name, exp in expected["documents"].items():
         got = measured["documents"].get(name)
         if got is None:
@@ -151,13 +161,19 @@ def run_full(folder: Path) -> dict[str, str]:
         check=True,
     )
     import pipeline_smoke
+    from make_sample_docs import DOCS
 
-    return {Path(r["file"]).stem: r["document_id"] for r in pipeline_smoke.run(folder, True)}
+    files = [folder / f"{name}.pdf" for name in DOCS]
+    return {
+        Path(row["file"]).stem: row["document_id"]
+        for row in pipeline_smoke.run(folder, True, files=files)
+    }
 
 
 def run_seeded() -> dict[str, str]:
-    """S2 -> S9 on PostgreSQL only: the §8.2 text seeded as OCR lines, stub extraction."""
-    from make_sample_docs import DOCS
+    """S2 -> S9: the §8.2 text seeded as OCR lines, stub extraction; the text rendered as the scan
+    in the object store, which S9 embeds in the bundle (ARCHITECTURE §5 S9)."""
+    from make_sample_docs import DOCS, text_pdf
 
     from cdi_adapter import repo
     from cdi_adapter.classify.service import classify_document
@@ -167,6 +183,7 @@ def run_seeded() -> dict[str, str]:
     from cdi_adapter.extract.service import SCHEMA_FOR_DOC_TYPE, write_extraction
     from cdi_adapter.fhir.service import project_document
     from cdi_adapter.ml.client import StubMLClient
+    from cdi_adapter.storage import get_store
     from cdi_adapter.terminology.service import bind_document
     from cdi_adapter.validate.service import validate_document
 
@@ -174,9 +191,12 @@ def run_seeded() -> dict[str, str]:
         raise SystemExit("--mode seeded is stub-only (CDI_MLSERVE_BACKEND=stub)")
     docs: dict[str, str] = {}
     patient = None
+    store = get_store()
+    store.ensure_bucket()  # a fresh object store (the restore drill's) has no bucket yet
     for name, lines in DOCS.items():
         with session_scope() as c:
-            # > 700 KB: S9 references the scan by URL (ARCHITECTURE §7.2), no object-store read
+            # recorded as > 700 KB: S9 also references the scan by its URL (ARCHITECTURE §7.2)
+            store.put_bytes(f"golden/{name}", text_pdf(lines), "application/pdf")
             doc = repo.insert_source_document(
                 c, sha256=hashlib.sha256(uuid.uuid4().bytes).hexdigest(),
                 filename=f"{name}.pdf", mime_type="application/pdf", byte_size=1_000_000,

@@ -1,0 +1,31 @@
+# Prometheus for CDI-Adapter (backlog E10-S2; metrics: docs/metrics.md, alerts: docs/alerts.md).
+# Runs on the same host as the services and listens on 127.0.0.1:9090 only (start_monitoring.sh).
+# Retention (start_monitoring.sh) is 30 days: the _partial alert compares the last hour with a
+# rolling 7-day baseline.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - rules/cdi-alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["127.0.0.1:9093"]
+
+scrape_configs:
+  # E10-S9: every web app instance's and job worker's loopback /metrics port, as written by
+  # infra/runpod/start_apptier.sh (CDI_METRICS_PORT + i - 1, CDI_WORKER_METRICS_PORT + i - 1)
+  - job_name: cdi-webapp
+    file_sd_configs:
+      - files: ["/workspace/monitoring/targets/cdi-webapp.json"]
+  - job_name: cdi-worker
+    file_sd_configs:
+      - files: ["/workspace/monitoring/targets/cdi-worker.json"]
+  - job_name: cdi-mlserve       # the model gateway (GPU)
+    static_configs:
+      - targets: ["127.0.0.1:8077"]
+  - job_name: prometheus
+    static_configs:
+      - targets: ["127.0.0.1:9090"]

@@ -1,0 +1,11 @@
+# Grafana dashboard provider (backlog E10-S2): the dashboards in infra/monitoring/grafana/dashboards,
+# read-only in the UI so the repo stays the source of truth. start_monitoring.sh sets CDI_DASHBOARDS.
+apiVersion: 1
+providers:
+  - name: cdi
+    folder: CDI-Adapter
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: $CDI_DASHBOARDS

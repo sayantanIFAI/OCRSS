@@ -1,0 +1,46 @@
+# Loki for CDI-Adapter logs (backlog E10-S3). Single binary, filesystem storage, loopback only.
+# The services ship their structured log lines over OTLP/HTTP
+# (CDI_OTEL_LOGS_ENDPOINT=http://127.0.0.1:3100/otlp/v1/logs); the OTel trace_id / span_id arrive
+# as structured metadata, which Grafana links to the trace in Tempo. ${LOKI_DATA}: start_monitoring.sh
+# (-config.expand-env=true). 30 days retention.
+auth_enabled: false
+
+server:
+  http_listen_address: 127.0.0.1
+  http_listen_port: 3100
+  grpc_listen_address: 127.0.0.1
+  grpc_listen_port: 9095
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: ${LOKI_DATA}
+  storage:
+    filesystem:
+      chunks_directory: ${LOKI_DATA}/chunks
+      rules_directory: ${LOKI_DATA}/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2026-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  retention_period: 720h
+  allow_structured_metadata: true
+
+compactor:
+  working_directory: ${LOKI_DATA}/compactor
+  retention_enabled: true
+  delete_request_store: filesystem
+
+analytics:
+  reporting_enabled: false

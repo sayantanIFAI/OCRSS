@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cdi:recognizer/ocr_observation.v1",
+  "title": "Recognizer output: one raw OCR / HTR observation (backlog E4-S7, ARCHITECTURE §15.4-§15.5)",
+  "description": "What an engine saw, as stored in ocr_observation. Recognition only: a recognizer never emits a code, a code system or a concept; normalization lives in interpretation_candidate.",
+  "type": "object",
+  "properties": {
+    "engine": {"type": "string", "enum": ["rapidocr", "vlm"]},
+    "engine_version": {"type": ["string", "null"]},
+    "prompt_hash": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+    "region_kind": {"type": ["string", "null"], "enum": ["printed", "handwritten", "mixed", "uncertain", null]},
+    "field_domain": {"type": ["string", "null"]},
+    "block_type": {"type": "string", "enum": ["line", "word", "cell", "page"]},
+    "raw_text": {"type": "string"},
+    "bbox": {"type": "array", "items": {"type": "integer"}, "minItems": 4, "maxItems": 4},
+    "polygon": {"type": ["array", "null"]},
+    "ocr_conf": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+    "token_confidences": {"type": ["array", "null"], "items": {"type": "number", "minimum": 0, "maximum": 1}},
+    "reading_order": {"type": "integer", "minimum": 0},
+    "crop_hash": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
+  },
+  "required": ["engine", "block_type", "raw_text", "bbox", "reading_order"],
+  "additionalProperties": false
+}

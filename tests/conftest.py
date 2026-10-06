@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine, make_url
+from sqlalchemy.exc import OperationalError
 
 ROOT = Path(__file__).resolve().parents[1]
 ADMIN_URL = os.environ.get(
@@ -53,9 +54,18 @@ def pg_url() -> Iterator[str]:
             ).first()
             if not exists:
                 c.execute(text(f"CREATE DATABASE {TEST_DB}"))
-    except Exception as exc:  # noqa: BLE001 - any connection failure means "no server"
+    except OperationalError as exc:  # no server listening / wrong host / bad password
         reason = str(exc).splitlines()[0][:160]
         _no_infra(f"PostgreSQL not reachable at {ADMIN_URL}: {type(exc).__name__}: {reason}")
+    except Exception as exc:  # noqa: BLE001 - the server answered but refused the statement
+        # e.g. InsufficientPrivilege: the role may log in but has no CREATEDB. Saying "not
+        # reachable" for this sends you hunting the wrong problem (seen on the Colab host).
+        reason = str(exc).splitlines()[0][:160]
+        _no_infra(
+            f"PostgreSQL at {ADMIN_URL} refused CREATE DATABASE {TEST_DB}: "
+            f"{type(exc).__name__}: {reason} "
+            f"(the test role needs CREATEDB: ALTER ROLE <role> CREATEDB)"
+        )
     admin.dispose()
     url = make_url(ADMIN_URL).set(database=TEST_DB).render_as_string(hide_password=False)
     eng = create_engine(url, isolation_level="AUTOCOMMIT")
@@ -108,6 +118,18 @@ def app_env(migrated_db, minio_endpoint, monkeypatch):
     db.reset_engine()
     get_settings.cache_clear()
     storage.get_store.cache_clear()
+
+
+@pytest.fixture
+def seeded_scans(app_env):
+    """A FHIR bundle embeds the original scan (ARCHITECTURE §5 S9: DocumentReference
+    ``attachment.data``, <= 12 MB; the ABDM profiles make it 1..1), so a test that builds one reads
+    a REAL MinIO: skipped with the reason when CDI_TEST_S3_ENDPOINT is unset. The synthetic test
+    documents (``tests.test_extract_integration._doc_with_ocr``) all point at the key "unused"."""
+    from cdi_adapter.storage import get_store
+    from tests.helpers import make_pdf
+
+    get_store().put_bytes("unused", make_pdf([["Synthetic test scan"]]), "application/pdf")
 
 
 @pytest.fixture

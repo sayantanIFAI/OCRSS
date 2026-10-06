@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cdi:med_agent_choice.v1",
+  "title": "Medication agent, step 2: choose the catalogue product written on each line, or none",
+  "type": "object",
+  "properties": {
+    "lines": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "line": {"type": "integer"},
+          "choice": {"type": "integer"},
+          "evidence": {"type": ["string", "null"]},
+          "rationale": {"type": ["string", "null"]},
+          "confidence": {"$ref": "cdi:common.defs#/$defs/confidence"}
+        },
+        "required": ["line", "choice", "evidence", "rationale", "confidence"],
+        "additionalProperties": false
+      }
+    },
+    "confidence": {"$ref": "cdi:common.defs#/$defs/confidence"}
+  },
+  "required": ["lines", "confidence"],
+  "additionalProperties": false
+}

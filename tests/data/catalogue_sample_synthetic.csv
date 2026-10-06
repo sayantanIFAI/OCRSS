@@ -1,0 +1,20 @@
+id,name,price(₹),Is_discontinued,manufacturer_name,type,pack_size_label,short_composition1,short_composition2
+1,Dolo 650 Tablet,30.9,FALSE,Test Pharma A,allopathy,strip of 15 tablets,Paracetamol (650mg),
+2,Dolo 500 Tablet,15.0,FALSE,Test Pharma A,allopathy,strip of 15 tablets,Paracetamol (500mg),
+3,Montina-FX Tablet,190.0,FALSE,Test Pharma B,allopathy,strip of 10 tablets,Montelukast (10mg),Fexofenadine (120mg)
+4,Zincovit Tablet,110.0,FALSE,Test Pharma C,allopathy,strip of 15 tablets,Multivitamin,Zinc
+5,Antiflu 75mg Capsule,475.0,FALSE,Test Pharma D,allopathy,strip of 10 capsules,Oseltamivir (75mg),
+6,Pan 40 Tablet,155.0,FALSE,Test Pharma E,allopathy,strip of 15 tablets,Pantoprazole (40mg),
+7,Telma 40 Tablet,240.0,FALSE,Test Pharma F,allopathy,strip of 15 tablets,Telmisartan (40mg),
+8,Telma H Tablet,260.0,FALSE,Test Pharma F,allopathy,strip of 15 tablets,Telmisartan (40mg),Hydrochlorothiazide (12.5mg)
+9,Metformin 500mg Tablet,20.0,FALSE,Test Pharma G,allopathy,strip of 10 tablets,Metformin (500mg),
+10,Somprazd 40mg Capsule,120.0,FALSE,Test Pharma H,allopathy,strip of 10 capsules,Esomeprazole (40mg),Domperidone (30mg)
+11,Glycomet 500 Tablet,24.0,TRUE,Test Pharma I,allopathy,strip of 20 tablets,Metformin (500mg),
+12,Glycomet 500 SR Tablet,40.0,FALSE,Test Pharma I,allopathy,strip of 20 tablets,Metformin (500mg),
+13,S Amlodipine Tablet,27.0,FALSE,Test Pharma J,allopathy,strip of 10 tablets,Amlodipine (NA),
+14,Uprise-D3 60K Capsule,290.0,FALSE,Test Pharma K,allopathy,strip of 8 capsules,Vitamin D3 (60000IU),
+15,Sompraz 40 Tablet,139.0,FALSE,Test Pharma H,allopathy,strip of 15 tablets,Esomeprazole (40mg),
+16,T-98 Tablet,50.0,FALSE,Test Pharma L,allopathy,strip of 10 tablets,Test Salt (10mg),
+17,Thyronorm 62.5mcg Tablet,208.0,FALSE,Test Pharma M,allopathy,bottle of 120 tablets,Thyroxine (62.5mcg),
+18,Meronorm 1gm Injection,900.0,FALSE,Test Pharma N,allopathy,vial of 1 Injection,Meropenem (1000mg),
+19,Saaz Tablet,68.0,FALSE,Test Pharma O,allopathy,strip of 10 tablets,Sulfasalazine (500mg),

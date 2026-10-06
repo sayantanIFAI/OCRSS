@@ -51,6 +51,10 @@ def stages(monkeypatch):
     return calls
 
 
+def conf_route(name):
+    return worker.celery_app.conf.task_routes[name]["queue"]
+
+
 def test_task_names_queue_and_delivery_guarantees():
     names = {t for t in worker.celery_app.tasks if t.startswith("cdi.")}
     assert names == {
@@ -59,7 +63,10 @@ def test_task_names_queue_and_delivery_guarantees():
         "cdi.ocr_document",
         "cdi.extract_document",
         "cdi.bind_document",
+        "cdi.web_job",  # E10-S9: a web-app job, on its own queue cdi-web
+        "cdi.medication_agent",  # E12-S4: the advisory medication agent, also on cdi-web
     }  # fmt: skip  (TECH_STACK §5)
+    assert conf_route("cdi.medication_agent") == "cdi-web"
     conf = worker.celery_app.conf
     assert conf.task_default_queue == "cdi" and conf.task_acks_late is True
     assert conf.broker_url.startswith("redis://")

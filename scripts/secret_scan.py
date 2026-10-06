@@ -27,10 +27,7 @@ SKIP_DIRS = {
     ".git", ".venv", ".tools", ".mypy_cache", ".ruff_cache", ".pytest_cache", "__pycache__",
     "node_modules", "data", "logs", "htmlcov", "build", "dist",
 }  # fmt: skip
-TEXT_SUFFIXES = {
-    ".py", ".sh", ".ps1", ".md", ".txt", ".toml", ".ini", ".cfg", ".yml", ".yaml", ".json",
-    ".sql", ".env", ".example", ".runpod", ".mako", ".html", ".css", ".js", "",
-}  # fmt: skip
+
 
 # Files whose dev defaults are intended: local dev, the throwaway test/CI databases, and docs.
 DEV_SCOPED = (
@@ -42,12 +39,10 @@ DEV_SCOPED = (
     "src/cdi_adapter/secretstore.py",
     "scripts/secret_scan.py",
     "scripts/dev/",
+    "scripts/broker_crash_drill.py",
     "tests/",
     "docs/",
     ".github/workflows/",
-    # compose alt-deploy files (Phase 0): not a deployment path — the fallback host is native
-    # (E1-S3, owner decision 2026-09-21), so its dev defaults never reach a shared host.
-    "infra/compose/",
 )
 
 PATTERNS: dict[str, re.Pattern[str]] = {
@@ -78,7 +73,7 @@ class Finding:
 
 
 def mask(s: str) -> str:
-    return s if len(s) <= 4 else s[:4] + f"...({len(s)} chars)"
+    return f"[redacted, {len(s)} chars]"
 
 
 def _dev_scoped(rel: str) -> bool:
@@ -94,7 +89,17 @@ def scan_text(rel: str, text: str) -> list[Finding]:
                 out.append(Finding(rel, n, kind, mask(m.group(0))))
         for m in URL_CRED.finditer(line):
             pw = m.group(2)
-            if PLACEHOLDER.match(pw) or pw in DEV_PASSWORDS:
+            rabbit_example = (
+                dev_ok
+                and pw == "guest"
+                and m.group(1) == "guest"
+                and (
+                    rel.startswith("tests/")
+                    or line[m.end() :].startswith(("127.0.0.1:", "localhost:"))
+                )
+                and m.group(0).startswith(("amqp://", "amqps://"))
+            )
+            if PLACEHOLDER.match(pw) or pw in DEV_PASSWORDS or rabbit_example:
                 continue
             out.append(Finding(rel, n, "password-in-url", mask(pw)))
         dev = None if dev_ok else DEV_DEFAULT.search(line)
@@ -107,7 +112,7 @@ def iter_files(root: Path) -> Iterator[Path]:
     for p in sorted(root.rglob("*")):
         if any(part in SKIP_DIRS for part in p.relative_to(root).parts):
             continue
-        if p.is_file() and (p.suffix in TEXT_SUFFIXES or p.name.startswith(".env")):
+        if p.is_file():
             yield p
 
 
@@ -134,12 +139,20 @@ def scan_history(root: Path) -> list[Finding] | None:
     commit, path = "?", "?"
     for line in log.splitlines():
         if line.startswith("commit "):
-            commit = line.split()[1][:10]
+            commit = line.split()[1]
         elif line.startswith("+++ b/"):
             path = line[6:]
         elif line.startswith("+") and not line.startswith("+++"):
             for f in scan_text(path, line[1:]):
-                findings.append(Finding(f"{commit}:{f.where}", f.line, f.kind, f.masked))
+                # Public development defaults in the original dormant Compose template.
+                # This exact historical exception cannot permit new deployed defaults or keys.
+                if (
+                    commit == "d7b4c324053e90f9e79432d81a7513c5c1dd795d"
+                    and path == "infra/compose/docker-compose.yml"
+                    and f.kind == "dev-default-credential"
+                ):
+                    continue
+                findings.append(Finding(f"{commit[:10]}:{f.where}", f.line, f.kind, f.masked))
     return findings
 
 

@@ -15,6 +15,7 @@
     "medications": {"$ref": "cdi:common.defs#/$defs/medication_list"},
     "allergies": {"$ref": "cdi:common.defs#/$defs/allergy_list"},
     "advice": {"$ref": "cdi:common.defs#/$defs/text_list"},
+    "investigations_advised": {"$ref": "cdi:common.defs#/$defs/text_list", "description": "tests the doctor advises or orders (Investigations / Adv / Ix), one per test, as written"},
     "referral_to": {"type": ["string", "null"]},
     "confidence": {"$ref": "cdi:common.defs#/$defs/confidence"}
   },

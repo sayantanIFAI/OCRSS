@@ -153,6 +153,19 @@ def test_prescription_handler_counts_like_the_worked_example():
     assert all(f.medication for f in out if f.fact_type == "medication")
 
 
+def test_a_diagnosis_line_naming_two_diseases_becomes_two_conditions():
+    p = {"diagnoses": [{"text": "Type 2 diabetes mellitus, Hypertension", "evidence": ["b3"],
+                        "confidence": 0.8}]}  # fmt: skip
+    out = [f for f in fx.facts_from_payload("prescription", p) if f.fact_type == "condition"]
+    assert [f.local_text for f in out] == ["Type 2 diabetes mellitus", "Hypertension"]
+    assert all(f.evidence == ["b3"] and f.confidence_extract == 0.8 for f in out)
+    # one disease written with a comma, or a part that codes to nothing: left as written
+    for one in ("Diabetes mellitus, type 2", "Fracture, left radius", "Heart failure"):
+        assert fx.split_joined("condition", one) == [one]
+    assert fx.split_joined("condition", "Heart failure and hypertension") == [
+        "Heart failure", "hypertension"]  # fmt: skip
+
+
 def test_radiology_handler_emits_findings_dx_report_procedure():
     p = {"findings_list": ["LAD 90% stenosis", {"text": "LCX mild plaque"}],
          "impression_concepts": ["Single vessel CAD"], "study": "Coronary angiogram",
@@ -217,3 +230,61 @@ def test_prompt_block_ids_budget_and_guidance():
 )
 def test_check_mismatch(found, mismatch):
     assert check_mismatch({"name": "Anjali Das", "dob": "1978-01-01"}, found) is mismatch
+
+
+def test_the_prompt_forbids_filled_in_values_and_keeps_advice_out_of_medications():
+    """2026-09-26, handwritten Rx on the 7B: every drug got "1-0-1" and route "oral" (the schema's
+    examples), gargles / steam inhalation / fluids came back as medications, and drug names were
+    the print OCR's garble."""
+    prompt, _ = build_extraction_prompt("prescription", [{"id": "x", "text": "Tab PCM 650 SOS"}])
+    assert "never fill in a typical value" in prompt
+    assert "never copy an example from the schema as a value" in prompt
+    assert "steam inhalation" in prompt and "are advice, not medications" in prompt
+    assert "read the words from the image" in prompt  # the OCR text is not the truth
+
+
+def test_every_document_with_medicines_gets_the_medication_rules():
+    """2026-09-28, a cardiology OPD sheet on the 7B: the prescription rules were missing for OPD
+    notes, so every drug again got "1-0-1" and route "PO", and drug_name was the form word."""
+    for doc_type in ("prescription", "opd_note", "discharge_summary"):
+        prompt, _ = build_extraction_prompt(doc_type, [{"id": "x", "text": "Rx"}])
+        assert "never fill in a typical value such as 1-0-1 or PO" in prompt
+        assert "never the form word alone" in prompt
+
+
+@pytest.mark.parametrize(
+    ("item", "drug", "form", "strength"),
+    [
+        ({"drug_name": "CAP", "strength": "LOPACA CV 200 MG"}, "Lopaca CV", "capsule", 200.0),
+        ({"drug_name": "T", "strength": "DURAI 10"}, "Durai 10", "tablet", None),
+        ({"drug_name": "Tab.", "strength": "BUTERO"}, "Butero", "tablet", None),
+        # untouched: a real name, or a strength that is only a number and a unit
+        ({"drug_name": "Tab Dolo 650", "strength": "650mg"}, "Dolo 650", "tablet", 650.0),
+        ({"drug_name": "Sompraz", "strength": "40 mg"}, "Sompraz", None, 40.0),
+    ],
+)
+def test_a_name_written_into_strength_is_put_back(item, drug, form, strength):
+    m = fx.parse_medication(fx.reslot_name(item))
+    assert (m.drug_text, m.form, m.strength_num) == (drug, form, strength)
+
+
+def test_the_medication_fact_carries_the_reslotted_name():
+    facts = fx._med_facts({"medications": [{"drug_name": "CAP", "strength": "LOPACA CV 200 MG",
+                                            "confidence": 0.9}]}, 0.8)  # fmt: skip
+    assert facts[0].local_text == "CAP LOPACA CV 200 MG"
+    assert facts[0].medication.drug_text == "Lopaca CV"
+
+
+@pytest.mark.parametrize(
+    ("written", "drug", "form"),
+    [
+        ("T Dytor 10", "Dytor 10", "tablet"), ("C Pan-D", "Pan-D", "capsule"),
+        ("Cr Candid", "Candid", "cream"), ("Syr Ascoril LS", "Ascoril LS", "syrup"),
+        ("Gtt Moxicip", "Moxicip", "drops"), ("Resp Budecort 0.5", "Budecort 0.5", "respules"),
+        ("Vitamin C 500", "Vitamin C 500", None),  # "C" inside a name is not a form
+        ("Neurobion Forte T", "Neurobion Forte T", None),
+    ],
+)  # fmt: skip
+def test_the_extracted_form_uses_the_shared_catalogue_table(written, drug, form):
+    m = fx.parse_medication({"drug_name": written})
+    assert (m.drug_text, m.form) == (drug, form)

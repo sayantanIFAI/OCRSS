@@ -43,11 +43,13 @@ def test_live_url_on_a_fallback_host_is_the_host_address() -> None:
 
 def test_bootstrap_installs_the_appendix_b_torch_only_where_it_is_missing() -> None:
     boot = (RUNPOD / "bootstrap_pod.sh").read_text(encoding="utf-8")
+    pins = (RUNPOD / "versions.env").read_text(encoding="utf-8")  # E1-S4: the pins live here
     torch, vision = re.search(
         r"torch / torchvision \| ([\d.]+)\+cu128 / ([\d.]+)\+cu128", ARCH
     ).groups()  # type: ignore[union-attr]  # noqa: E501
-    assert f"TORCH_VERSION=${{TORCH_VERSION:-{torch}}}" in boot
-    assert f"TORCHVISION_VERSION=${{TORCHVISION_VERSION:-{vision}}}" in boot
+    assert f"\nTORCH_VERSION={torch}+cu128\n" in pins
+    assert f"\nTORCHVISION_VERSION={vision}+cu128\n" in pins
+    assert '"torch==$TORCH_VERSION"' in boot and '. "$HERE/versions.env"' in boot
     guard = next(ln for ln in boot.splitlines() if "import torch" in ln)
     assert '"${CDI_MLSERVE_BACKEND:-stub}" = "hf"' in guard and "! " in guard
     assert "download.pytorch.org/whl/cu128" in boot

@@ -2,16 +2,28 @@
 
 Runs **before** classify: the orchestrator first calls ``ocr_document(doc, force_engine=
 "rapidocr")`` so the S2 heuristic reads real OCR text; if S2 then marks the page handwritten it
-calls ``ocr_document(doc, force_engine="vlm")``, which deletes and re-inserts the blocks so the
-VLM transcription cleanly supersedes the RapidOCR pass. Without ``force_engine`` the engine is
-chosen from the classification (``is_handwritten AND CDI_HANDWRITTEN_USES_VLM`` -> VLM).
-Idempotent: every run deletes the document's previous blocks first.
+calls ``ocr_document(doc, force_engine="vlm")``, so the VLM transcription supersedes the RapidOCR
+pass. Without ``force_engine`` the engine is chosen from the classification
+(``is_handwritten AND CDI_HANDWRITTEN_USES_VLM`` -> VLM).
+
+Every run appends raw observations (``ocr_observation``, backlog E4-S7): the document's earlier
+observations are never deleted, they are pointed at the new run (``superseded_by``), so
+``ocr_block`` - the current observations - shows exactly what the old delete-and-insert did.
+Each observation records the SHA-256 of the pixels it was read from (the page image cropped at
+its bbox), the region kind, the engine version and, for the VLM, the prompt's hash. The engines
+themselves (``rapid.py``, ``vlm_ocr.py``) are unchanged: only where their output is kept changed.
 """
 
 from __future__ import annotations
 
+import hashlib
+import io
+from functools import cache
+from importlib import metadata
 from typing import Any
 from uuid import UUID
+
+from PIL import Image
 
 from cdi_adapter import repo
 from cdi_adapter.config import Settings, get_settings
@@ -25,6 +37,43 @@ log = get_logger(__name__)
 
 ENGINES = ("rapidocr", "vlm")
 _EARLY = ("received", "pages_rendered")  # statuses OCR may advance to 'ocr_done'
+
+
+@cache
+def _rapid_version() -> str:
+    try:
+        return "rapidocr-onnxruntime " + metadata.version("rapidocr-onnxruntime")
+    except metadata.PackageNotFoundError:
+        return "rapidocr-onnxruntime"
+
+
+def crop_hashes(png: bytes, lines: list[rapid.OcrLine]) -> list[str | None]:
+    """SHA-256 of the pixels each line was read from: the page image cropped at its bbox (the
+    size is hashed with the pixels, so two crops of different shape never collide)."""
+    with Image.open(io.BytesIO(png)) as im:
+        page = im.convert("RGB")
+    out: list[str | None] = []
+    for ln in lines:
+        x0, y0, x1, y1 = (int(v) for v in ln.bbox)
+        box = (max(0, x0), max(0, y0), min(page.width, x1), min(page.height, y1))
+        if box[2] <= box[0] or box[3] <= box[1]:
+            out.append(None)  # a box outside the page: no pixels to point at
+            continue
+        crop = page.crop(box)
+        h = hashlib.sha256(f"{crop.width}x{crop.height}:".encode())
+        h.update(crop.tobytes())
+        out.append(h.hexdigest())
+    return out
+
+
+def _observation_meta(engine: str, settings: Settings) -> dict[str, Any]:
+    if engine == "vlm":  # used for pages the classifier calls handwritten, read as one region
+        return {
+            "region_kind": "handwritten",
+            "engine_version": settings.vlm_model_id,
+            "prompt_hash": hashlib.sha256(vlm_ocr.TRANSCRIBE_PROMPT.encode()).hexdigest(),
+        }
+    return {"region_kind": "printed", "engine_version": _rapid_version(), "prompt_hash": None}
 
 
 def choose_engine(
@@ -60,7 +109,7 @@ def ocr_document(
         run_id = repo.start_run(conn, document_id=document_id, stage="ocr", model_name=model)
 
     try:
-        per_page: list[tuple[dict[str, Any], list[rapid.OcrLine]]] = []
+        per_page: list[tuple[dict[str, Any], list[rapid.OcrLine], list[str | None]]] = []
         vlm = (client or get_client()) if engine == "vlm" else None
         for page in pages:
             png = store.get_bytes(page["storage_key"])
@@ -68,10 +117,11 @@ def ocr_document(
                 lines = vlm_ocr.run_vlm_transcription(png, page["width"], page["height"], vlm)
             else:
                 lines = rapid.run_rapidocr(png, min_conf=settings.ocr_min_conf)
-            per_page.append((page, lines))
+            per_page.append((page, lines, crop_hashes(png, lines)))
 
+        meta = _observation_meta(engine, settings)
         with session_scope() as conn:
-            repo.delete_ocr_blocks_for_document(conn, document_id)
+            superseded = repo.supersede_ocr_observations(conn, document_id, run_id)
             rows = [
                 {
                     "document_id": document_id,
@@ -84,9 +134,11 @@ def ocr_document(
                     "reading_order": ln.reading_order,
                     "engine": engine,
                     "pipeline_run_id": run_id,
+                    "crop_hash": crop,
+                    **meta,
                 }
-                for page, lines in per_page
-                for ln in lines
+                for page, lines, crops in per_page
+                for ln, crop in zip(lines, crops, strict=True)
             ]
             repo.insert_ocr_blocks(conn, rows)
             confs = [r["ocr_conf"] for r in rows]
@@ -94,6 +146,7 @@ def ocr_document(
                 "engine": engine,
                 "pages": len(per_page),
                 "blocks": len(rows),
+                "superseded": superseded,
                 "mean_conf": round(sum(confs) / len(confs), 4) if confs else None,
             }
             if doc["status"] in _EARLY:

@@ -14,7 +14,6 @@ from uuid import UUID
 
 from sqlalchemy import Connection, text
 
-from cdi_adapter.config import get_settings
 from cdi_adapter.fhir import resources as R
 from cdi_adapter.mpi.service import get_patient
 from cdi_adapter.terminology.seed import CONDITIONS
@@ -33,6 +32,18 @@ def _rows(conn: Connection, table: str, item: str) -> list[dict[str, Any]]:
     ).mappings()]  # fmt: skip
 
 
+def _advised_tests(conn: Connection, item: str) -> list[str]:
+    """The approved item's advised tests (``cn_lab_order``) as narrative lines."""
+    from cdi_adapter.fhir.service import advised_test
+
+    return [advised_test(r["test_text"], r.get("code_display"))
+            for r in conn.execute(text(
+                "SELECT o.test_text, f.code_display FROM cn_lab_order o "
+                "LEFT JOIN clinical_fact f ON f.id = o.source_fact_id "
+                "WHERE o.rv_item_id = :i ORDER BY o.recorded_at, o.id"), {"i": item}
+            ).mappings()]  # fmt: skip
+
+
 def build_bundle(conn: Connection, rv_item_id: UUID | str) -> dict[str, Any]:
     item_id = str(rv_item_id)
     item = conn.execute(text("SELECT * FROM rv_item WHERE id = :i"),
@@ -46,7 +57,7 @@ def build_bundle(conn: Connection, rv_item_id: UUID | str) -> dict[str, Any]:
     now = datetime.now(UTC).isoformat()
 
     p_ref, o_ref, pr_ref = _ref("patient", item["patient_id"]), _ref("org"), _ref("pract", item_id)
-    e_ref, d_ref = _ref("encounter", item_id), _ref("docref", item_id)
+    e_ref = _ref("encounter", item_id)
     entries: list[tuple[str, dict[str, Any]]] = [
         (p_ref, R.patient(pat, p_ref)),
         (o_ref, R.organization(R.FACILITY_NAME, o_ref)),
@@ -74,7 +85,8 @@ def build_bundle(conn: Connection, rv_item_id: UUID | str) -> dict[str, Any]:
         ref = _ref("cn_medication", r["id"])
         add("medication", ref, R.medication_request(
             {**r, "local_text": r["drug_text"], "asserted_time": r["recorded_at"],
-             "code_display": r["drug_text"]}, ref, p_ref, e_ref, pr_ref))  # fmt: skip
+             "code_display": r["drug_text"]}, ref, p_ref, e_ref, pr_ref,
+            R._iso(enc.get("period_start")) or now))  # fmt: skip
     for r in _rows(conn, "cn_lab_result", item_id):
         ref = _ref("cn_lab_result", r["id"])
         add("investigation", ref, R.measured_observation(
@@ -100,40 +112,27 @@ def build_bundle(conn: Connection, rv_item_id: UUID | str) -> dict[str, Any]:
                                        "code_system": r["code_system"],
                                        "code_display": r["substance"],
                                        "value_text": r["reaction"]}, ref, p_ref))  # fmt: skip
-    if lab_refs:
-        dr = _ref("labreport", item_id)
-        add("investigation", dr, R.diagnostic_report({"text": "Laboratory report"}, dr, p_ref,
-                                                      e_ref, lab_refs, None))  # fmt: skip
+    # the artifact-specific parts, exactly as S9 builds them (ABDM 6.5.0): the scan (inlined, as
+    # the profiles require) and, for a report or lab results, the DiagnosticReport
+    from cdi_adapter.fhir.service import _scan, document_parts
 
-    entries.append(
-        (
-            d_ref,
-            R.document_reference(
-                dict(doc),
-                d_ref,
-                p_ref,
-                data_b64=None,
-                url=R.scan_url(dict(doc), get_settings().s3_bucket),
-            ),
-        )
-    )
-    sections["document"] = [d_ref]
+    artifact = R.artifact_for(item["doc_type"])[0]
+    data_b64, url = _scan(dict(doc), None)
+    parts, part_secs, src = document_parts(
+        artifact, dict(doc), lambda kind: _ref(kind, item_id), p_ref, e_ref, pr_ref,
+        lab_refs=lab_refs, report_texts=[], data_b64=data_b64, url=url)  # fmt: skip
+    entries += parts
+    clinical += [u for u, r in parts if r["resourceType"] in ("DiagnosticReport", "Media")]
+    for key, refs in part_secs.items():
+        sections.setdefault(key, []).extend(refs)
+    if part_secs.get("report") and artifact != "DiagnosticReportRecord":
+        sections.setdefault("investigation", []).extend(part_secs["report"])
     prov = _ref("provenance", item_id)
-    entries.append(
-        (
-            prov,
-            R.provenance(
-                prov,
-                clinical + [d_ref],
-                d_ref,
-                o_ref,
-                "canonical promotion (clinician-governed)",
-                now,
-            ),
-        )
-    )
+    why = "canonical promotion (clinician-governed)"
+    entries.append((prov, R.provenance(prov, clinical + [src], src, o_ref, why, now)))
     comp_ref = _ref("composition", item_id)
-    comp = R.composition(comp_ref, item["doc_type"], p_ref, e_ref, pr_ref, o_ref, sections, [],
+    comp = R.composition(comp_ref, item["doc_type"], p_ref, e_ref, pr_ref, o_ref, sections,
+                         _advised_tests(conn, item_id),
                          now, final=True)  # fmt: skip
     b = R.bundle([(comp_ref, comp)] + entries, now)
     b["identifier"]["value"] = str(uuid.uuid5(_NS, f"bundle:{item_id}"))

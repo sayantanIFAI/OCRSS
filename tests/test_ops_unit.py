@@ -70,26 +70,35 @@ def test_compose_alt_deploy_shape():
         "minio",
         "createbuckets",
         "migrate",
-        "api",
+        "webapp",
         "worker",
-        "watcher",
-    }  # fmt: skip  (TECH_STACK §13; webapp/mlserve = E1-S3)
+        "mlserve",
+    }
     assert c["services"]["postgres"]["image"] == "postgres:16"
     assert c["services"]["redis"]["image"] == "redis:7-alpine"
-    assert c["services"]["minio"]["image"] == "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z"
-    worker_cmd = c["services"]["worker"]["command"][:4]
-    assert worker_cmd == ["celery", "-A", "cdi_adapter.worker.celery_app", "worker"]
-    assert "cdi_adapter.api:app" in c["services"]["api"]["command"]
-    for s in ("postgres", "redis", "minio"):
-        assert "healthcheck" in c["services"][s]
-    for port in c["services"]["postgres"]["ports"] + c["services"]["minio"]["ports"]:
-        assert port.startswith("127.0.0.1:")  # never exposed beyond the host
+    assert c["services"]["minio"]["build"]["dockerfile"] == "infra/compose/Dockerfile.minio"
+    for name in ("webapp", "worker"):
+        deps = c["services"][name]["depends_on"]
+        assert deps["migrate"]["condition"] == "service_completed_successfully"
+        assert deps["createbuckets"]["condition"] == "service_completed_successfully"
+        assert deps["mlserve"]["condition"] == "service_healthy"
+    for name in ("postgres", "redis", "minio", "webapp", "mlserve"):
+        assert "healthcheck" in c["services"][name]
+    for name in ("postgres", "redis", "minio", "mlserve"):
+        assert not c["services"][name].get("ports")
+    assert c["services"]["webapp"]["ports"][0].startswith("127.0.0.1:")
+    assert "env_file" not in c["x-app"]
+    assert c["services"]["postgres"]["environment"]["POSTGRES_PASSWORD_FILE"].startswith(
+        "/run/secrets/"
+    )
 
 
 def test_dockerfile_base():
     t = (ROOT / "infra/compose/Dockerfile").read_text(encoding="utf-8")
-    assert t.splitlines()[2].startswith("FROM python:3.11-slim")
-    assert "postgresql-client" in t and "libgl1" in t and "USER cdi" in t
+    assert t.startswith("FROM python:3.12-slim-bookworm")
+    assert "postgresql-client" in t and "libgl1" in t and "gosu" in t
+    entry = (ROOT / "infra/compose/entrypoint.sh").read_text()
+    assert 'exec gosu cdi "$@"' in entry and "install -m 600" in entry
 
 
 def test_makefile_targets():
@@ -104,7 +113,25 @@ def test_env_runpod_keys_are_all_real_settings():
     keys = [ln.split("=", 1)[0] for ln in (ROOT / ".env.runpod").read_text().splitlines()
             if ln and not ln.startswith("#")]  # fmt: skip
     fields = {f"CDI_{f}".upper() for f in Settings.model_fields}
-    assert keys and set(keys) <= fields, set(keys) - fields
+    # E1-S9: the ingress keys are read by the lifecycle scripts only, never by the app
+    tunnel = (RUNPOD / "start_tunnel.sh").read_text(encoding="utf-8")
+    script_only = {k for k in keys if k.startswith("CDI_INGRESS_")}
+    assert script_only and all(f"${{{k}" in tunnel for k in script_only), script_only
+    # E10-S6: the data-tier HA keys are read by the bootstrap and the `cdi_adapter.ha` commands
+    boot = (RUNPOD / "bootstrap_pod.sh").read_text(encoding="utf-8")
+    ha_cli = (ROOT / "src" / "cdi_adapter" / "ha" / "__main__.py").read_text(encoding="utf-8")
+    ha_keys = {"CDI_PG_STANDBY_PORT", "CDI_MINIO_MODE", "CDI_MINIO_ADDRESSES", "CDI_MINIO_DRIVES"}
+    assert ha_keys <= set(keys)
+    assert all(f"${{{k}" in boot or f'"{k}"' in ha_cli for k in ha_keys), ha_keys
+    script_only |= ha_keys
+    # E10-S9: how many instances / workers, and the balancer: read by start_apptier.sh only
+    apptier = (RUNPOD / "start_apptier.sh").read_text(encoding="utf-8")
+    app_keys = {"CDI_WEBAPP_INSTANCES", "CDI_WEBAPP_BASE_PORT", "CDI_WORKERS",
+                "CDI_WORKER_CONCURRENCY", "CDI_LB_ADMIN_PORT",
+                "CDI_GPU_WORKERS"}  # E9-S2: how many GPU-pool workers  # fmt: skip
+    assert app_keys <= set(keys) and all(f"${{{k}" in apptier for k in app_keys), app_keys
+    script_only |= app_keys
+    assert keys and set(keys) - script_only <= fields, set(keys) - script_only - fields
     env = dict(ln.split("=", 1) for ln in (ROOT / ".env.runpod").read_text().splitlines()
                if ln and not ln.startswith("#"))  # fmt: skip
     assert env["CDI_MLSERVE_BACKEND"] == "hf" and env["CDI_WEBAPP_PORT"] == "8888"
@@ -145,3 +172,50 @@ def test_sample_docs_survive_scan_noise_ocr_and_classification(tmp_path):
         res = _heuristic_classify(text)
         got = res.doc_type if res else None
         assert got == doc_type, (name, text[:300])
+
+
+def test_failed_restore_is_retried_before_boot_can_continue(tmp_path):
+    import os
+
+    bash = _bash()
+    if bash is None:
+        pytest.skip("bash not available")
+    boot = (RUNPOD / "bootstrap_pod.sh").read_text()
+    block = boot.split("RESTORE_MARKER=$PGDATA/cdi.restore-required", 1)[1].split(
+        "# ---------------------------------------------------------------- 3. venv", 1
+    )[0]
+    block = "set -euo pipefail\nRESTORE_MARKER=$PGDATA/cdi.restore-required" + block
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    (fake_bin / "su").write_text(
+        '#!/bin/sh\ncase "$*" in\n'
+        '  *SELECT*) [ ! -f "$PGDATA/database" ] || echo 1 ;;\n'
+        '  *CREATE*) touch "$PGDATA/database" ;;\nesac\n'
+    )
+    (fake_bin / "pg_restore").write_text(
+        '#!/bin/sh\necho attempt >> "$PGDATA/attempts"\n[ ! -f "$PGDATA/fail" ]\n'
+    )
+    for executable in fake_bin.iterdir():
+        executable.chmod(0o755)
+    dump = tmp_path / "backup.dump"
+    dump.write_text("synthetic-backup")
+    failure = tmp_path / "fail"
+    failure.touch()
+    env = {
+        **os.environ,
+        "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        "PGDATA": str(tmp_path),
+        "DUMP": str(dump),
+        "PSQL_URL": "postgresql://localhost/cdi",
+    }
+    first = subprocess.run([bash, "-c", block], env=env, capture_output=True, text=True)
+    assert first.returncode != 0
+    marker = tmp_path / "cdi.restore-required"
+    assert marker.exists() and (tmp_path / "database").exists()
+    failure.unlink()
+    second = subprocess.run([bash, "-c", block], env=env, capture_output=True, text=True)
+    assert second.returncode == 0, second.stderr
+    assert not marker.exists()
+    third = subprocess.run([bash, "-c", block], env=env, capture_output=True, text=True)
+    assert third.returncode == 0
+    assert (tmp_path / "attempts").read_text().splitlines() == ["attempt", "attempt"]

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cdi:med_agent_fit.v1",
+  "title": "Medication agent, step 4: the ONE listed diagnosis each identified medicine treats",
+  "type": "object",
+  "properties": {
+    "lines": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "line": {
+            "type": "integer"
+          },
+          "treats": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "why": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "line",
+          "treats",
+          "why"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "confidence": {
+      "$ref": "cdi:common.defs#/$defs/confidence"
+    }
+  },
+  "required": [
+    "lines",
+    "confidence"
+  ],
+  "additionalProperties": false
+}

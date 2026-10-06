@@ -1,0 +1,1044 @@
+{
+  "uid": "cdi-overview",
+  "title": "CDI-Adapter overview",
+  "description": "Backlog E10-S2. Metrics: docs/metrics.md. On-call: docs/alerts.md.",
+  "tags": [
+    "cdi"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 5,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "editable": false,
+  "panels": [
+    {
+      "type": "alertlist",
+      "title": "Firing and pending alerts",
+      "options": {
+        "stateFilter": {
+          "firing": true,
+          "pending": true
+        },
+        "maxItems": 20,
+        "viewMode": "list",
+        "sortOrder": 1
+      },
+      "id": 1,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 6
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Job time p95 vs the 5-minute SLA (ADR-0002)",
+      "description": "Alert CdiSlaWindowBreach: docs/alerts.md",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cdi-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 300
+              }
+            ]
+          },
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(cdi_job_seconds_bucket[15m])))",
+          "legendFormat": "p95"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "max(cdi_job_oldest_running_seconds)",
+          "legendFormat": "oldest running job"
+        }
+      ],
+      "id": 2,
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Stage time p95 per document",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cdi-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, stage) (rate(cdi_stage_seconds_bucket[15m])))",
+          "legendFormat": "{{stage}}"
+        }
+      ],
+      "id": 3,
+      "gridPos": {
+        "x": 12,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Extraction queue",
+      "description": "Alert CdiQueueBacklog above 30 for 5 minutes",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cdi-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 30
+              }
+            ]
+          },
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "max(cdi_extract_waiting)",
+          "legendFormat": "waiting for a GPU slot"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "max(cdi_extract_in_flight)",
+          "legendFormat": "in flight"
+        }
+      ],
+      "id": 4,
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Jobs by state",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cdi-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "max by (state) (cdi_jobs)",
+          "legendFormat": "{{state}}"
+        }
+      ],
+      "id": 5,
+      "gridPos": {
+        "x": 12,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "GPU utilization",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cdi-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "max by (gpu) (cdi_gpu_utilization_percent)",
+          "legendFormat": "GPU {{gpu}}"
+        }
+      ],
+      "id": 6,
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "GPU memory",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cdi-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "max by (gpu) (cdi_gpu_memory_used_bytes)",
+          "legendFormat": "used, GPU {{gpu}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "max by (gpu) (cdi_gpu_memory_total_bytes)",
+          "legendFormat": "total, GPU {{gpu}}"
+        }
+      ],
+      "id": 7,
+      "gridPos": {
+        "x": 12,
+        "y": 22,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "S6 gate decisions per hour",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cdi-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "sum by (decision) (increase(cdi_gate_decisions_total[1h]))",
+          "legendFormat": "{{decision}}"
+        }
+      ],
+      "id": 8,
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "_partial extraction rate: last hour vs 7-day baseline",
+      "description": "Alert CdiPartialRateAboveBaseline",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cdi-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "sum(rate(cdi_extractions_total{outcome=\"partial\"}[1h])) / sum(rate(cdi_extractions_total[1h]))",
+          "legendFormat": "last hour"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "sum(rate(cdi_extractions_total{outcome=\"partial\"}[7d])) / sum(rate(cdi_extractions_total[7d]))",
+          "legendFormat": "7-day baseline"
+        }
+      ],
+      "id": 9,
+      "gridPos": {
+        "x": 12,
+        "y": 30,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Human review backlog",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cdi-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "max by (queue) (cdi_review_backlog)",
+          "legendFormat": "{{queue}}"
+        }
+      ],
+      "id": 10,
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Reviewer throughput per hour",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cdi-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "sum by (action) (increase(cdi_review_decisions_total[1h]))",
+          "legendFormat": "fact {{action}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "sum by (action) (increase(cdi_review_items_total[1h]))",
+          "legendFormat": "item {{action}}"
+        }
+      ],
+      "id": 11,
+      "gridPos": {
+        "x": 12,
+        "y": 38,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Model gateway calls per minute",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cdi-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "sum by (kind, outcome) (rate(cdi_vlm_requests_total[5m])) * 60",
+          "legendFormat": "{{kind}} {{outcome}}"
+        }
+      ],
+      "id": 12,
+      "gridPos": {
+        "x": 0,
+        "y": 46,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "GPU out-of-memory events",
+      "description": "Alert CdiGpuOom",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cdi-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "sum by (where) (increase(cdi_vlm_oom_total[15m]))",
+          "legendFormat": "{{where}}"
+        }
+      ],
+      "id": 13,
+      "gridPos": {
+        "x": 12,
+        "y": 46,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Confidence drift: KS distance, last 6 h vs the 7 days before",
+      "description": "Alert CdiConfidenceDrift above 0.25 for 30 minutes (docs/alerts.md)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cdi-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.25
+              }
+            ]
+          },
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "max(abs(sum by (le) (increase(cdi_fact_confidence_bucket[6h])) / scalar(sum(increase(cdi_fact_confidence_count[6h]))) - sum by (le) (increase(cdi_fact_confidence_bucket[7d] offset 6h)) / scalar(sum(increase(cdi_fact_confidence_count[7d] offset 6h)))))",
+          "legendFormat": "KS distance"
+        }
+      ],
+      "id": 14,
+      "gridPos": {
+        "x": 0,
+        "y": 54,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Fact confidence quantiles (6 h)",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cdi-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "histogram_quantile(0.1, sum by (le) (increase(cdi_fact_confidence_bucket[6h])))",
+          "legendFormat": "p10"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "histogram_quantile(0.5, sum by (le) (increase(cdi_fact_confidence_bucket[6h])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "histogram_quantile(0.9, sum by (le) (increase(cdi_fact_confidence_bucket[6h])))",
+          "legendFormat": "p90"
+        }
+      ],
+      "id": 15,
+      "gridPos": {
+        "x": 12,
+        "y": 54,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Human-override rate (1 day): corrected or rejected / all reviewer decisions",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cdi-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "sum(increase(cdi_review_decisions_total{action=~\"correct|reject\"}[1d])) / sum(increase(cdi_review_decisions_total[1d]))",
+          "legendFormat": "override rate"
+        }
+      ],
+      "id": 16,
+      "gridPos": {
+        "x": 0,
+        "y": 62,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Unmapped-code rate (1 day): local_only / all terminology bindings",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cdi-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "sum(increase(cdi_terminology_bindings_total{outcome=\"local_only\"}[1d])) / sum(increase(cdi_terminology_bindings_total[1d]))",
+          "legendFormat": "unmapped rate"
+        }
+      ],
+      "id": 17,
+      "gridPos": {
+        "x": 12,
+        "y": 62,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Canary: share of documents (%) and calls sent back to the primary (1 h)",
+      "description": "python -m cdi_adapter.modelops status (docs/model-rollout.md)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cdi-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "max(cdi_model_canary_percent)",
+          "legendFormat": "canary %"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "sum(increase(cdi_model_canary_fallbacks_total[1h]))",
+          "legendFormat": "fallbacks to primary"
+        }
+      ],
+      "id": 18,
+      "gridPos": {
+        "x": 0,
+        "y": 70,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Canary vs primary: _partial and failed extractions (1 h)",
+      "description": "Live canary check; the full comparison is `python -m cdi_adapter.modelops compare`",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cdi-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "sum by (role) (increase(cdi_model_extractions_total{outcome=\"partial\"}[1h])) / sum by (role) (increase(cdi_model_extractions_total[1h]))",
+          "legendFormat": "_partial {{role}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "sum by (role) (increase(cdi_model_extractions_total{outcome=\"failed\"}[1h])) / sum by (role) (increase(cdi_model_extractions_total[1h]))",
+          "legendFormat": "failed {{role}}"
+        }
+      ],
+      "id": 19,
+      "gridPos": {
+        "x": 12,
+        "y": 70,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Postgres standby: replication lag (s), standbys streaming, slots without a standby",
+      "description": "Alerts CdiPgReplicationLag / CdiPgStandbyDisconnected (docs/ha.md)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cdi-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 30
+              }
+            ]
+          },
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "max(cdi_pg_replication_lag_seconds)",
+          "legendFormat": "lag (s)"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "max(cdi_pg_standbys_streaming)",
+          "legendFormat": "standbys streaming"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "max(cdi_pg_replication_slots_inactive)",
+          "legendFormat": "slots without a standby"
+        }
+      ],
+      "id": 20,
+      "gridPos": {
+        "x": 0,
+        "y": 78,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "MinIO: drives offline, hosts online vs configured",
+      "description": "Alert CdiMinioDegraded: one more loss stops writes (docs/ha.md)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cdi-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "max(cdi_minio_drives_offline)",
+          "legendFormat": "drives offline"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "max(cdi_minio_drives)",
+          "legendFormat": "drives"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "min(cdi_minio_nodes_online)",
+          "legendFormat": "hosts online"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "max(cdi_minio_nodes)",
+          "legendFormat": "hosts"
+        }
+      ],
+      "id": 21,
+      "gridPos": {
+        "x": 12,
+        "y": 78,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Backups: minutes since the newest good backup; last restore drill RPO / RTO (min)",
+      "description": "Alerts CdiBackupStale / CdiRestoreDrillFailed / CdiRestoreDrillOverdue (docs/dr.md)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cdi-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 45
+              }
+            ]
+          },
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "(time() - max(cdi_backup_last_success_timestamp_seconds)) / 60",
+          "legendFormat": "since last good backup"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "max(cdi_dr_rpo_seconds) / 60",
+          "legendFormat": "drill RPO"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "max(cdi_dr_rto_seconds) / 60",
+          "legendFormat": "drill RTO"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "max(cdi_dr_restore_last_ok)",
+          "legendFormat": "last drill passed (1/0)"
+        }
+      ],
+      "id": 22,
+      "gridPos": {
+        "x": 0,
+        "y": 86,
+        "w": 24,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "App tier: instances and workers up, jobs without a runner, takeovers (1 h)",
+      "description": "E10-S9 (docs/ha.md Application tier). Instances / workers answering their /metrics; orphaned = accepted jobs whose runner died and nobody took over yet; resumed = jobs taken over; gateway failovers = model calls moved to another replica.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cdi-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "sum(up{job=\"cdi-webapp\"})",
+          "legendFormat": "web app instances up"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "sum(up{job=\"cdi-worker\"})",
+          "legendFormat": "job workers up"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "max(cdi_jobs_orphaned)",
+          "legendFormat": "jobs without a runner"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "sum(increase(cdi_job_resumes_total[1h]))",
+          "legendFormat": "jobs resumed (1 h)"
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cdi-prometheus"
+          },
+          "expr": "sum(increase(cdi_mlserve_failovers_total[1h]))",
+          "legendFormat": "gateway failovers (1 h)"
+        }
+      ],
+      "id": 23,
+      "gridPos": {
+        "x": 0,
+        "y": 94,
+        "w": 24,
+        "h": 8
+      }
+    }
+  ]
+}

@@ -1,23 +1,24 @@
-# Alternative deployment (TECH_STACK §13 "Alt-deploy"): backing services + the ingest path on a
-# non-RunPod host. NOT used on the pod (the pod runs native processes, ARCHITECTURE §3.3).
-# As built there is no webapp / mlserve service here — adding them is backlog E1-S3.
+# Non-RunPod fallback. Provision secrets outside the checkout; see docs/compose.md.
 name: cdi-adapter
 
 x-app: &app
+  image: cdi-adapter-app:local
   build:
     context: ../..
     dockerfile: infra/compose/Dockerfile
-  env_file: ../../.env
-  environment:
-    CDI_DATABASE_URL: postgresql+psycopg://cdi:cdi@postgres:5432/cdi
-    CDI_REDIS_URL: redis://redis:6379/0
+  environment: &app-env
+    CDI_SECRETS_DIR: /run/cdi-secrets
     CDI_S3_ENDPOINT_URL: http://minio:9000
+    CDI_MLSERVE_URL: http://mlserve:8077
+    CDI_MLSERVE_BACKEND: stub
+    CDI_JOB_EXECUTION: queue
+    CDI_SESSION_COOKIE_SECURE: ${CDI_SESSION_COOKIE_SECURE:-true}
     CDI_INBOX_DIR: /data/inbox
     CDI_PROCESSED_DIR: /data/processed
     CDI_FAILED_DIR: /data/failed
-  volumes:
-    - inbox:/data
-  depends_on:
+  secrets: [cdi_database_url, cdi_redis_url, cdi_s3_access_key, cdi_s3_secret_key]
+  volumes: [inbox:/data]
+  depends_on: &ready
     postgres: {condition: service_healthy}
     redis: {condition: service_healthy}
     minio: {condition: service_healthy}
@@ -25,51 +26,92 @@ x-app: &app
 services:
   postgres:
     image: postgres:16
-    environment: {POSTGRES_USER: cdi, POSTGRES_PASSWORD: cdi, POSTGRES_DB: cdi}
+    environment:
+      POSTGRES_USER: cdi
+      POSTGRES_DB: cdi
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
     volumes: [pgdata:/var/lib/postgresql/data]
-    ports: ["127.0.0.1:5432:5432"]
-    healthcheck: {test: ["CMD-SHELL", "pg_isready -U cdi"], interval: 5s, retries: 20}
+    healthcheck: {test: ["CMD-SHELL", "pg_isready -U cdi -d cdi"], interval: 5s, timeout: 3s, retries: 20}
 
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes"]
+    # Load requirepass from a file. Healthcheck authenticates without putting it in argv.
+    entrypoint: ["/bin/sh", "-c", "cp /run/secrets/redis_conf /tmp/redis.conf && chown redis:redis /tmp/redis.conf && chmod 600 /tmp/redis.conf && exec /usr/local/bin/docker-entrypoint.sh redis-server /tmp/redis.conf --appendonly yes"]
+    secrets: [redis_conf]
     volumes: [redisdata:/data]
-    healthcheck: {test: ["CMD", "redis-cli", "ping"], interval: 5s, retries: 20}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - REDISCLI_AUTH=$$(sed -n 's/^requirepass //p' /run/secrets/redis_conf) redis-cli ping | grep -qx PONG
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   minio:
-    # the release recorded in ARCHITECTURE App. B; MinIO's images live on quay.io (the Docker Hub
-    # repository returns 404) — tag verified to exist on 2026-09-21
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
-    command: ["server", "/data", "--console-address", ":9001"]
-    environment: {MINIO_ROOT_USER: minioadmin, MINIO_ROOT_PASSWORD: minioadmin}
+    build:
+      context: ../..
+      dockerfile: infra/compose/Dockerfile.minio
+    command: ["server", "/data", "--address", ":9000"]
+    environment:
+      MINIO_ROOT_USER_FILE: /run/secrets/cdi_s3_access_key
+      MINIO_ROOT_PASSWORD_FILE: /run/secrets/cdi_s3_secret_key
+    secrets: [cdi_s3_access_key, cdi_s3_secret_key]
     volumes: [miniodata:/data]
-    ports: ["127.0.0.1:9000:9000", "127.0.0.1:9001:9001"]
-    healthcheck: {test: ["CMD", "curl", "-fsS", "http://localhost:9000/minio/health/live"], interval: 5s, retries: 20}
-
-  createbuckets:
-    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z  # verified on quay.io 2026-09-21
-    depends_on: {minio: {condition: service_healthy}}
-    entrypoint: ["/bin/sh", "-c", "mc alias set local http://minio:9000 minioadmin minioadmin && mc mb --ignore-existing local/cdi-documents"]
+    healthcheck: {test: ["CMD", "curl", "-fsS", "http://localhost:9000/minio/health/live"], interval: 5s, timeout: 3s, retries: 30}
 
   migrate:
     <<: *app
     command: ["python", "-m", "alembic", "upgrade", "head"]
     restart: "no"
 
-  api:
+  createbuckets:
     <<: *app
-    command: ["uvicorn", "cdi_adapter.api:app", "--host", "0.0.0.0", "--port", "8080"]
-    ports: ["127.0.0.1:8080:8080"]
+    command: ["python", "-c", "from cdi_adapter.storage import get_store; get_store().ensure_bucket()"]
+    restart: "no"
+
+  mlserve:
+    <<: *app
+    command: ["uvicorn", "cdi_adapter.mlserve.app:app", "--host", "0.0.0.0", "--port", "8077"]
+    depends_on: {}
+    restart: unless-stopped
+    healthcheck: {test: ["CMD", "curl", "-fsS", "http://localhost:8077/healthz"], interval: 5s, timeout: 3s, retries: 20}
+
+  webapp:
+    <<: *app
+    command: ["python", "-m", "cdi_adapter.webapp"]
+    ports: ["127.0.0.1:${CDI_WEBAPP_PORT:-8888}:8888"]
+    depends_on:
+      <<: *ready
+      migrate: {condition: service_completed_successfully}
+      createbuckets: {condition: service_completed_successfully}
+      mlserve: {condition: service_healthy}
+    restart: unless-stopped
+    healthcheck: {test: ["CMD", "curl", "-fsS", "http://localhost:8888/readyz"], interval: 5s, timeout: 5s, retries: 20}
 
   worker:
     <<: *app
-    command: ["celery", "-A", "cdi_adapter.worker.celery_app", "worker", "-Q", "cdi", "--concurrency", "2"]
+    command: ["celery", "-A", "cdi_adapter.worker.celery_app", "worker", "-Q", "cdi,cdi-web,cdi-gpu", "--concurrency", "2"]
+    depends_on:
+      <<: *ready
+      migrate: {condition: service_completed_successfully}
+      createbuckets: {condition: service_completed_successfully}
+      mlserve: {condition: service_healthy}
+    restart: unless-stopped
 
-  watcher:
-    <<: *app
-    command: ["cdi-ingest-watch"]
-
-  # vllm: optional serving backend — backlog E2-S1 (dormant in the as-built system)
+secrets:
+  postgres_password:
+    file: ${CDI_COMPOSE_SECRETS_DIR:?Set CDI_COMPOSE_SECRETS_DIR}/postgres_password
+  redis_conf:
+    file: ${CDI_COMPOSE_SECRETS_DIR}/redis.conf
+  cdi_database_url:
+    file: ${CDI_COMPOSE_SECRETS_DIR}/cdi_database_url
+  cdi_redis_url:
+    file: ${CDI_COMPOSE_SECRETS_DIR}/cdi_redis_url
+  cdi_s3_access_key:
+    file: ${CDI_COMPOSE_SECRETS_DIR}/cdi_s3_access_key
+  cdi_s3_secret_key:
+    file: ${CDI_COMPOSE_SECRETS_DIR}/cdi_s3_secret_key
 
 volumes:
   pgdata:

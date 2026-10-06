@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cdi:med_agent_verify.v1",
+  "title": "Medication agent, step 5: a yes/no second opinion on each medicine-diagnosis link",
+  "type": "object",
+  "properties": {
+    "pairs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "pair": {
+            "type": "integer"
+          },
+          "answer": {
+            "type": "string",
+            "enum": [
+              "yes",
+              "no"
+            ]
+          }
+        },
+        "required": [
+          "pair",
+          "answer"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "confidence": {
+      "$ref": "cdi:common.defs#/$defs/confidence"
+    }
+  },
+  "required": [
+    "pairs",
+    "confidence"
+  ],
+  "additionalProperties": false
+}

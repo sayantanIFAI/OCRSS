@@ -123,6 +123,23 @@ def test_re_extraction_supersedes_instead_of_doubling(db_env):
     assert len(repo_facts(doc)) == first and n_ext == 1 and n_enc == 1
 
 
+def test_the_same_document_extracted_again_keeps_its_patient(db_env):
+    # 2026-09-25: one image uploaded twice (same bytes = same document) got a second "Rahul":
+    # a name-only reading never matches an existing record, so each extraction minted a new one
+    lines = [ln.replace("Anjali Das", f"Test {uuid.uuid4().hex[:6]}") for ln in RX_LINES]
+    doc, blocks = _doc_with_ocr(lines)
+    first = _write(doc, blocks)
+    with session_scope() as c:
+        before = c.execute(text("SELECT count(*) FROM patient_identity")).scalar_one()
+    again = _write(doc, blocks)  # no patient given: the upload again
+    with session_scope() as c:
+        after = c.execute(text("SELECT count(*) FROM patient_identity")).scalar_one()
+        filed = c.execute(text("SELECT patient_id FROM source_document WHERE id = :d"),
+                          {"d": doc}).scalar_one()  # fmt: skip
+    assert again["patient_id"] == first["patient_id"] == filed and again["identity"] == "document"
+    assert after == before  # no second record
+
+
 def repo_facts(doc):
     with session_scope() as c:
         return repo.get_facts_for_document(c, doc)
@@ -192,4 +209,7 @@ def test_full_extract_document_chain(app_env):
     ocr_document(res.document_id, force_engine="rapidocr")
     classify_document(res.document_id)
     out = extract_document(res.document_id)
-    assert out["facts"] >= 8
+    # Two conditions, three medicines and two vitals; BP is one fact with two components.
+    assert out["facts"] == 7
+    facts = repo_facts(res.document_id)
+    assert sum(f["fact_type"] == "medication" for f in facts) == 3

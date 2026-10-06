@@ -1,0 +1,42 @@
+# Grafana data sources (backlog E10-S2 / E10-S3): the local Prometheus, Tempo and Loki, loopback
+# only. Tempo -> Loki: from a span, the log lines of the same trace. Loki -> Tempo: a log line's
+# trace_id (OTel structured metadata) opens its trace. `$$` is a literal `$` in provisioning files.
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: cdi-prometheus
+    type: prometheus
+    access: proxy
+    url: http://127.0.0.1:9090
+    isDefault: true
+    editable: false
+
+  - name: Tempo
+    uid: cdi-tempo
+    type: tempo
+    access: proxy
+    url: http://127.0.0.1:3200
+    editable: false
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: cdi-loki
+        filterByTraceID: true
+        spanStartTimeShift: "-5m"
+        spanEndTimeShift: "5m"
+      serviceMap:
+        datasourceUid: cdi-prometheus
+
+  - name: Loki
+    uid: cdi-loki
+    type: loki
+    access: proxy
+    url: http://127.0.0.1:3100
+    editable: false
+    jsonData:
+      derivedFields:
+        - name: trace_id
+          datasourceUid: cdi-tempo
+          matcherType: label
+          matcherRegex: trace_id
+          url: "$${__value.raw}"
+          urlDisplayLabel: Open the trace

@@ -18,8 +18,8 @@ py -3.12 -m venv .venv
 .venv/Scripts/python -m ruff check src tests
 ```
 
-Integration tests need a native PostgreSQL 16 (no Docker; ARCHITECTURE §3.3). On Windows, a local
-dev/test server runs from `.tools/` (it must be downloaded there first; the folder is git-ignored):
+Integration tests need PostgreSQL 16 and real MinIO. CI uses the [Compose service containers](docs/compose.md); native services also work. On Windows, a local
+dev/test server runs from `.tools/` (download it there first; the folder is git-ignored):
 
 ```bash
 powershell -File scripts/dev/pg_local.ps1 start
@@ -36,8 +36,10 @@ mypy, then `pytest -m "not integration"`. Any red stage fails the run. See [`doc
 .venv/Scripts/python scripts/ci.py
 ```
 
-<!-- CI badge: add once the repository is on a git host (E1-S1 is Blocked on that), e.g.
-     ![ci](https://github.com/<owner>/<repo>/actions/workflows/ci.yml/badge.svg) -->
+[![ci](https://github.com/manishtech0607-cmyk/CDI-Adapter/actions/workflows/ci.yml/badge.svg)](https://github.com/manishtech0607-cmyk/CDI-Adapter/actions/workflows/ci.yml)
+
+Non-RunPod fallback: [Compose runbook](docs/compose.md).
+Epic 1 release gates: [readiness assessment](docs/epic-1-readiness.md).
 
 Run CLI tools as `python -m <tool>`: Windows Smart App Control blocks pip's unsigned `.exe` launchers.
 

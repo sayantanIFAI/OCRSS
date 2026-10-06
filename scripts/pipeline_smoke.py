@@ -12,17 +12,19 @@ import time
 from pathlib import Path
 
 
-def run(folder: Path, full: bool) -> list[dict]:
+def run(folder: Path, full: bool, *, files: list[Path] | None = None) -> list[dict]:
     from cdi_adapter.classify.service import classify_document
     from cdi_adapter.extract.service import extract_document
     from cdi_adapter.fhir.service import project_document
     from cdi_adapter.ingest.service import ingest_bytes
     from cdi_adapter.ocr.service import ocr_document
+    from cdi_adapter.storage import get_store
     from cdi_adapter.terminology.service import bind_document
     from cdi_adapter.validate.service import validate_document
 
+    get_store().ensure_bucket()
     rows, patient = [], None
-    for f in sorted(p for p in folder.iterdir() if p.is_file()):
+    for f in files if files is not None else sorted(p for p in folder.iterdir() if p.is_file()):
         t0 = time.perf_counter()
         res = ingest_bytes(f.read_bytes(), f.name, source_channel="smoke")
         doc = str(res.document_id)

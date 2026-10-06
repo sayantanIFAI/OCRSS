@@ -1,0 +1,492 @@
+{
+  "entry": [
+    {
+      "fullUrl": "urn:uuid:7ba03a79-fa59-5152-9523-52b7c5aa53f1",
+      "resource": {
+        "author": [
+          {
+            "reference": "urn:uuid:bc6221fc-b4eb-50fb-98d5-08a7ec9b356d"
+          }
+        ],
+        "custodian": {
+          "reference": "urn:uuid:66c0d3a9-c723-5c30-9792-4fe5880edc7e"
+        },
+        "date": "2026-08-12T10:00:00+00:00",
+        "encounter": {
+          "reference": "urn:uuid:62725c21-879b-5a69-a824-8f800a2f5d0c"
+        },
+        "id": "7ba03a79-fa59-5152-9523-52b7c5aa53f1",
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/DischargeSummaryRecord"
+          ]
+        },
+        "resourceType": "Composition",
+        "section": [
+          {
+            "entry": [
+              {
+                "reference": "urn:uuid:5e9cdeeb-96f6-5b9e-aaa1-1440d85fe354"
+              }
+            ],
+            "title": "Diagnosis"
+          },
+          {
+            "entry": [
+              {
+                "reference": "urn:uuid:270cb3d5-46d0-530f-a396-43a06559e146"
+              }
+            ],
+            "title": "Medications"
+          },
+          {
+            "entry": [
+              {
+                "reference": "urn:uuid:e7c4d9be-0d91-5fd2-a034-ca8a2bcc4869"
+              }
+            ],
+            "title": "Procedures"
+          },
+          {
+            "entry": [
+              {
+                "reference": "urn:uuid:2bc3ef67-69f7-5d7c-aec6-1407fe4695f9"
+              }
+            ],
+            "title": "Document reference"
+          },
+          {
+            "text": {
+              "div": "<div xmlns=\"http://www.w3.org/1999/xhtml\"><ul><li>Follow up in surgical OPD after 1 week</li></ul></div>",
+              "status": "generated"
+            },
+            "title": "Advisory notes"
+          }
+        ],
+        "status": "final",
+        "subject": {
+          "reference": "urn:uuid:3b373192-2a50-5879-b4f4-d35451854e76"
+        },
+        "title": "Discharge summary",
+        "type": {
+          "coding": [
+            {
+              "code": "373942005",
+              "display": "Discharge summary",
+              "system": "http://snomed.info/sct"
+            }
+          ],
+          "text": "Discharge summary"
+        }
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:3b373192-2a50-5879-b4f4-d35451854e76",
+      "resource": {
+        "birthDate": "1978-03-14",
+        "gender": "female",
+        "id": "3b373192-2a50-5879-b4f4-d35451854e76",
+        "identifier": [
+          {
+            "system": "https://careflow.clinic/mpi",
+            "type": {
+              "coding": [
+                {
+                  "code": "MR",
+                  "display": "Medical record number",
+                  "system": "http://terminology.hl7.org/CodeSystem/v2-0203"
+                }
+              ],
+              "text": "Medical record number"
+            },
+            "use": "usual",
+            "value": "CFP-2026-000001"
+          },
+          {
+            "system": "https://healthid.ndhm.gov.in",
+            "type": {
+              "coding": [
+                {
+                  "code": "ABHA",
+                  "display": "Ayushman Bharat Health Account (ABHA) ID",
+                  "system": "https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-identifier-type-code"
+                }
+              ],
+              "text": "ABHA number"
+            },
+            "use": "official",
+            "value": "91-1234-5678-9012"
+          },
+          {
+            "system": "https://healthid.ndhm.gov.in/address",
+            "type": {
+              "coding": [
+                {
+                  "code": "ABHA",
+                  "display": "Ayushman Bharat Health Account (ABHA) ID",
+                  "system": "https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-identifier-type-code"
+                }
+              ],
+              "text": "ABHA address"
+            },
+            "value": "anjali.das@abdm"
+          },
+          {
+            "system": "urn:cdi:legacy-mrn",
+            "type": {
+              "coding": [
+                {
+                  "code": "MR",
+                  "display": "Medical record number",
+                  "system": "http://terminology.hl7.org/CodeSystem/v2-0203"
+                }
+              ],
+              "text": "Legacy MRN"
+            },
+            "value": "LEG-7"
+          }
+        ],
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/Patient"
+          ]
+        },
+        "name": [
+          {
+            "text": "Anjali Das"
+          }
+        ],
+        "resourceType": "Patient"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:66c0d3a9-c723-5c30-9792-4fe5880edc7e",
+      "resource": {
+        "id": "66c0d3a9-c723-5c30-9792-4fe5880edc7e",
+        "identifier": [
+          {
+            "system": "https://careflow.clinic/facility",
+            "type": {
+              "coding": [
+                {
+                  "code": "PRN",
+                  "display": "Provider number",
+                  "system": "http://terminology.hl7.org/CodeSystem/v2-0203"
+                }
+              ],
+              "text": "Facility ID"
+            },
+            "value": "CAREFLOW-POLYCLINIC-1"
+          }
+        ],
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/Organization"
+          ]
+        },
+        "name": "CareFlow Polyclinic",
+        "resourceType": "Organization"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:bc6221fc-b4eb-50fb-98d5-08a7ec9b356d",
+      "resource": {
+        "id": "bc6221fc-b4eb-50fb-98d5-08a7ec9b356d",
+        "identifier": [
+          {
+            "system": "https://careflow.clinic/practitioner",
+            "type": {
+              "coding": [
+                {
+                  "code": "OIN",
+                  "display": "Other identifier",
+                  "system": "https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-identifier-type-code"
+                }
+              ],
+              "text": "CareFlow practitioner id"
+            },
+            "value": "bc6221fc-b4eb-50fb-98d5-08a7ec9b356d"
+          }
+        ],
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/Practitioner"
+          ]
+        },
+        "name": [
+          {
+            "text": "Attending clinician"
+          }
+        ],
+        "resourceType": "Practitioner"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:62725c21-879b-5a69-a824-8f800a2f5d0c",
+      "resource": {
+        "class": {
+          "code": "IMP",
+          "display": "inpatient encounter",
+          "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode"
+        },
+        "id": "62725c21-879b-5a69-a824-8f800a2f5d0c",
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/Encounter"
+          ]
+        },
+        "period": {
+          "start": "2026-08-12T09:30:00+00:00"
+        },
+        "resourceType": "Encounter",
+        "status": "finished",
+        "subject": {
+          "reference": "urn:uuid:3b373192-2a50-5879-b4f4-d35451854e76"
+        }
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:5e9cdeeb-96f6-5b9e-aaa1-1440d85fe354",
+      "resource": {
+        "clinicalStatus": {
+          "coding": [
+            {
+              "code": "active",
+              "system": "http://terminology.hl7.org/CodeSystem/condition-clinical"
+            }
+          ]
+        },
+        "code": {
+          "coding": [
+            {
+              "code": "85189001",
+              "display": "Acute appendicitis",
+              "system": "http://snomed.info/sct"
+            }
+          ],
+          "text": "Acute appendicitis"
+        },
+        "encounter": {
+          "reference": "urn:uuid:62725c21-879b-5a69-a824-8f800a2f5d0c"
+        },
+        "id": "5e9cdeeb-96f6-5b9e-aaa1-1440d85fe354",
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/Condition"
+          ]
+        },
+        "recordedDate": "2026-08-12T09:30:00+00:00",
+        "resourceType": "Condition",
+        "subject": {
+          "reference": "urn:uuid:3b373192-2a50-5879-b4f4-d35451854e76"
+        },
+        "verificationStatus": {
+          "coding": [
+            {
+              "code": "confirmed",
+              "system": "http://terminology.hl7.org/CodeSystem/condition-ver-status"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:e7c4d9be-0d91-5fd2-a034-ca8a2bcc4869",
+      "resource": {
+        "code": {
+          "coding": [
+            {
+              "code": "80146002",
+              "display": "Appendectomy",
+              "system": "http://snomed.info/sct"
+            }
+          ],
+          "text": "Appendicectomy"
+        },
+        "encounter": {
+          "reference": "urn:uuid:62725c21-879b-5a69-a824-8f800a2f5d0c"
+        },
+        "id": "e7c4d9be-0d91-5fd2-a034-ca8a2bcc4869",
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/Procedure"
+          ]
+        },
+        "performedDateTime": "2026-08-12T09:30:00+00:00",
+        "resourceType": "Procedure",
+        "status": "completed",
+        "subject": {
+          "reference": "urn:uuid:3b373192-2a50-5879-b4f4-d35451854e76"
+        }
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:270cb3d5-46d0-530f-a396-43a06559e146",
+      "resource": {
+        "authoredOn": "2026-08-12T09:30:00+00:00",
+        "dispenseRequest": {
+          "expectedSupplyDuration": {
+            "code": "d",
+            "system": "http://unitsofmeasure.org",
+            "unit": "days",
+            "value": 5.0
+          }
+        },
+        "dosageInstruction": [
+          {
+            "doseAndRate": [
+              {
+                "doseQuantity": {
+                  "code": "mg",
+                  "system": "http://unitsofmeasure.org",
+                  "unit": "mg",
+                  "value": 650.0
+                }
+              }
+            ],
+            "route": {
+              "coding": [
+                {
+                  "code": "26643006",
+                  "display": "Oral route",
+                  "system": "http://snomed.info/sct"
+                }
+              ]
+            },
+            "text": "Tab Paracetamol 650 mg SOS x 5 days",
+            "timing": {
+              "repeat": {
+                "boundsDuration": {
+                  "code": "d",
+                  "system": "http://unitsofmeasure.org",
+                  "unit": "days",
+                  "value": 5.0
+                },
+                "frequency": 3,
+                "period": 1,
+                "periodUnit": "d"
+              }
+            }
+          }
+        ],
+        "encounter": {
+          "reference": "urn:uuid:62725c21-879b-5a69-a824-8f800a2f5d0c"
+        },
+        "id": "270cb3d5-46d0-530f-a396-43a06559e146",
+        "intent": "order",
+        "medicationCodeableConcept": {
+          "text": "Tab Paracetamol 650 mg SOS x 5 days"
+        },
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/MedicationRequest"
+          ]
+        },
+        "requester": {
+          "reference": "urn:uuid:bc6221fc-b4eb-50fb-98d5-08a7ec9b356d"
+        },
+        "resourceType": "MedicationRequest",
+        "status": "active",
+        "subject": {
+          "reference": "urn:uuid:3b373192-2a50-5879-b4f4-d35451854e76"
+        }
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:2bc3ef67-69f7-5d7c-aec6-1407fe4695f9",
+      "resource": {
+        "content": [
+          {
+            "attachment": {
+              "contentType": "image/png",
+              "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4//8/AAX+Av6n1qTFAAAAAElFTkSuQmCC",
+              "title": "discharge_summary_golden.png"
+            }
+          }
+        ],
+        "id": "2bc3ef67-69f7-5d7c-aec6-1407fe4695f9",
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/DocumentReference"
+          ]
+        },
+        "resourceType": "DocumentReference",
+        "status": "current",
+        "subject": {
+          "reference": "urn:uuid:3b373192-2a50-5879-b4f4-d35451854e76"
+        },
+        "type": {
+          "text": "Scanned source document"
+        }
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:8218f9a4-3716-5fb0-ad0e-756de5310515",
+      "resource": {
+        "agent": [
+          {
+            "onBehalfOf": {
+              "reference": "urn:uuid:66c0d3a9-c723-5c30-9792-4fe5880edc7e"
+            },
+            "type": {
+              "text": "assembler"
+            },
+            "who": {
+              "reference": "urn:uuid:66c0d3a9-c723-5c30-9792-4fe5880edc7e"
+            }
+          }
+        ],
+        "entity": [
+          {
+            "role": "source",
+            "what": {
+              "reference": "urn:uuid:2bc3ef67-69f7-5d7c-aec6-1407fe4695f9"
+            }
+          }
+        ],
+        "id": "8218f9a4-3716-5fb0-ad0e-756de5310515",
+        "meta": {
+          "profile": [
+            "http://hl7.org/fhir/StructureDefinition/Provenance"
+          ]
+        },
+        "reason": [
+          {
+            "text": "Generated by CDI-Adapter from the scan; model stack: extractor=golden-fixture"
+          }
+        ],
+        "recorded": "2026-08-12T10:00:00+00:00",
+        "resourceType": "Provenance",
+        "target": [
+          {
+            "reference": "urn:uuid:5e9cdeeb-96f6-5b9e-aaa1-1440d85fe354"
+          },
+          {
+            "reference": "urn:uuid:e7c4d9be-0d91-5fd2-a034-ca8a2bcc4869"
+          },
+          {
+            "reference": "urn:uuid:270cb3d5-46d0-530f-a396-43a06559e146"
+          },
+          {
+            "reference": "urn:uuid:2bc3ef67-69f7-5d7c-aec6-1407fe4695f9"
+          }
+        ]
+      }
+    }
+  ],
+  "id": "b07fd54c-37c4-5fae-9dcc-537cfa3795b6",
+  "identifier": {
+    "system": "urn:cdi:bundle",
+    "value": "85ffbe4f-9040-51cd-931c-1815a54dd8fd"
+  },
+  "meta": {
+    "lastUpdated": "2026-08-12T10:00:00+00:00",
+    "profile": [
+      "https://nrces.in/ndhm/fhir/r4/StructureDefinition/DocumentBundle"
+    ],
+    "versionId": "1"
+  },
+  "resourceType": "Bundle",
+  "timestamp": "2026-08-12T10:00:00+00:00",
+  "type": "document"
+}

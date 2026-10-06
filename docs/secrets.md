@@ -17,9 +17,9 @@ The four credential settings (ARCHITECTURE §9): `CDI_DATABASE_URL` (holds the D
 - A store readable by group/other **refuses to load** (`PermissionError`); a configured store that
   does not exist fails (`FileNotFoundError`). Credentials are `repr=False` on `Settings`, so they
   do not appear in logs or tracebacks.
-- Precedence is pydantic-settings' own: environment > `.env` > store. So a shared host must keep
-  credentials out of its `.env` and environment — the secret scan enforces that for the repo's
-  pod config (`.env.runpod`).
+- When a store is configured, its four application credentials override environment and `.env`.
+  Missing/weak credentials stop startup; other settings still use normal environment precedence.
+  Keep credential values out of process environment and `.env` on shared hosts.
 - No new server: no vault product is named in ARCHITECTURE.md or TECH_STACK.md, and the pod runs
   everything as native processes (§3.3). A KMS-backed vault is §14 #9 / E1-S10 work.
 
@@ -34,18 +34,14 @@ python -m cdi_adapter.secretstore rotate cdi_s3_secret_key
 
 `bootstrap_pod.sh` step 0:
 
-1. `init` the persistent copy in `/workspace/secrets` (first boot only).
-2. Copy it to `CDI_SECRETS_DIR=/run/cdi-secrets` (overlay) as 0700/0600 and `check` it.
-3. Derive `pgpass` (libpq) and `redis.conf` (`requirepass`) there, so no password is ever on a
-   command line (`/proc/<pid>/cmdline` is world-readable).
-4. Re-apply the Postgres role password from the store (SQL on stdin); start Redis with the
-   `requirepass` file; start MinIO with the root credentials from the store.
+1. Set `SECRETS_SRC` to a vault-provisioned or private persistent directory that enforces modes.
+2. Initialize only missing credentials; reject unsafe directory/file modes before writing values.
+3. Check the source, then copy to `CDI_SECRETS_DIR=/run/cdi-secrets` as 0700/0600.
+4. Derive private `pgpass` and `redis.conf` files; configure backing services and restart consumers.
 
-**Known limit, recorded, not hidden:** `/workspace` is MooseFS, which forces mode 0777 (the same
-reason PGDATA lives on the overlay, ARCHITECTURE §3.3). The persistent copy is therefore readable
-by any process on the pod. On the single-tenant pilot pod everything runs as root anyway, which is
-why §12's remedy is "rotate; don't share pods". The production host (E1-S10) must keep the store
-on a filesystem that honours modes, or in a KMS.
+`/workspace/secrets` on MooseFS is **not acceptable**: mode 0777 cannot protect credentials.
+Bootstrap now refuses such storage. Provision a private mount or vault agent before boot.
+This is fail-closed hardening, not evidence that a vault or rotation has been deployed.
 
 **First boot after this change on an existing pod:** MinIO's data directory was created with the
 old default root credentials. The bootstrap starts MinIO with the new ones; confirm `/healthz`
@@ -55,7 +51,7 @@ part of the pod verification that is still pending (the pod is not available to 
 ## Rotating a credential
 
 ```bash
-python -m cdi_adapter.secretstore --dir /workspace/secrets rotate cdi_database_url
+python -m cdi_adapter.secretstore --dir "$SECRETS_SRC" rotate cdi_database_url
 bash /workspace/cdi/infra/runpod/start_all.sh   # re-copies the store, re-applies the DB password
 ```
 
@@ -76,7 +72,7 @@ RunPod account owner can rotate it:
 `python scripts/secret_scan.py` (also the `secrets` stage of `scripts/ci.py`) fails on RunPod /
 Hugging Face / GitHub / AWS keys, private keys, and connection URLs carrying a real password
 anywhere; and on the dev defaults outside the files that are explicitly dev/CI-only. Findings are
-masked. It scans git history too once the project is a git repository (today it is not).
+masked. It scans git history too once the project is a git repository (full history is fetched in CI).
 
 ## Misuse tests (`tests/test_secrets_unit.py`)
 

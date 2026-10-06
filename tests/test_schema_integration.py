@@ -1,4 +1,4 @@
-"""E0-S2 (integration): migrations 0001–0004 against a real PostgreSQL 16, plus the core DAL."""
+"""E0-S2 (integration): migrations 0001–0008 against a real PostgreSQL 16, plus the core DAL."""
 
 from __future__ import annotations
 
@@ -25,8 +25,48 @@ CANONICAL_TABLES = {
     "cn_vital_sign", "cn_allergy", "cn_clinical_note", "cn_fhir_bundle",
     "ops_patient_visit", "fin_billing_item",
 }  # fmt: skip
+AUTH_TABLES = {"web_user", "web_session"}  # migration 0005 (backlog E11-S1)
+MODEL_TABLES = {"model_version", "model_rollout"}  # migration 0006 (backlog E10-S5)
+JOB_TABLES = {"web_job"}  # migration 0007 (backlog E10-S9)
+# migration 0009: the medicine catalogue (Tata 1mg) and each medication's identification
+CATALOGUE_TABLES = {"med_catalogue", "med_catalogue_import", "medication_catalogue_match"}
+AGENT_TABLES = {"agent_trace"}  # migration 0010 (backlog E12-S5)
+ORDER_TABLES = {"cn_lab_order"}  # migration 0011: tests a prescription advises
+# migration 0013 (backlog E4-S7): ocr_block became ocr_observation; ocr_block is now a view
+EVIDENCE_TABLES = {
+    "ocr_observation",
+    "interpretation_candidate",
+    "verified_fact",
+    "ocr_agreement",
+}  # 0013 (E4-S7) + 0018 (E4-S11)
+LONGITUDINAL_TABLES = {
+    "medication_supersession",  # migration 0014 (backlog E5-S1)
+    "problem_continuity",
+}  # migration 0023 (E5-S1 problem list)
+ORCHESTRATOR_TABLES = {"workflow_step", "workflow_replay", "agent_tool_call"}  # 0019 (E12-S1)
+# migration 0021 (backlog E9-S1): a schema change with the cluster up
+MIGRATION_TABLES = {"schema_gate", "migration_run"}
+# migration 0022 (backlog E9-S3): what stopped being retried
+QUEUE_TABLES = {"dead_letter"}
+# migration 0026 (backlog E5-S2): the derived patient summary
+SUMMARY_TABLES = {"patient_summary"}
+TRAINING_TABLES = {
+    "calibration_adjudication",  # 0025: durable clinician decisions
+    "calibration_dataset",
+    "calibration_training_example",  # 0015 (E4-S1)
+    "calibration_model",
+    "calibration_slice",  # 0016 (E4-S2)
+    "gate_threshold_set",
+    "gate_threshold",
+}  # 0017 (E4-S3)
+ALL_TABLES = ((PER_DOC_TABLES - {"ocr_block"}) | {"patient_registry"} | CANONICAL_TABLES
+              | AUTH_TABLES | MODEL_TABLES | JOB_TABLES | CATALOGUE_TABLES | AGENT_TABLES
+              | ORDER_TABLES | EVIDENCE_TABLES | LONGITUDINAL_TABLES
+              | TRAINING_TABLES | ORCHESTRATOR_TABLES | MIGRATION_TABLES
+              | QUEUE_TABLES | SUMMARY_TABLES)  # fmt: skip
 VIEWS = {"v_problem_list", "v_medication_list", "v_allergy_list", "v_results_grid",
-         "v_encounter_timeline"}  # fmt: skip
+         "v_encounter_timeline", "ocr_block", "v_medication_history",
+         "v_problem_history", "v_patient_summary"}  # fmt: skip
 
 
 def _tables(engine) -> set[str]:
@@ -57,10 +97,10 @@ def test_server_is_postgres_16(engine):
 
 
 def test_upgrade_head_creates_every_table_and_view(engine):
-    assert _tables(engine) == PER_DOC_TABLES | {"patient_registry"} | CANONICAL_TABLES
+    assert _tables(engine) == ALL_TABLES
     assert _views(engine) == VIEWS
     with engine.connect() as c:
-        assert c.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0004"
+        assert c.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0027"
         assert c.execute(text("SELECT nextval('patient_mpi_seq')")).scalar_one() >= 1
 
 
@@ -113,6 +153,14 @@ def test_views_read_current_facts(engine):
             ),
             {"p": pid},
         )
+        # an auto_accepted fact needs its evidence (migration 0012, backlog E4-S5)
+        c.execute(
+            text(
+                "INSERT INTO fact_provenance (fact_id, extracted_text) SELECT id, local_text "
+                "FROM clinical_fact WHERE patient_id = :p AND review_state = 'auto_accepted'"
+            ),
+            {"p": pid},
+        )
         c.execute(text("UPDATE clinical_fact SET is_current = false WHERE local_text = 'old dx'"))
         rows = (
             c.execute(text("SELECT problem FROM v_problem_list WHERE patient_id = :p"), {"p": pid})
@@ -161,4 +209,4 @@ def test_downgrade_base_then_upgrade_round_trip(pg_url, engine):
     command.downgrade(cfg, "base")
     assert _tables(engine) == set() and _views(engine) == set()
     command.upgrade(cfg, "head")
-    assert _tables(engine) == PER_DOC_TABLES | {"patient_registry"} | CANONICAL_TABLES
+    assert _tables(engine) == ALL_TABLES

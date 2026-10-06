@@ -1,7 +1,9 @@
 """Structured (key-value / JSON) logging for pipeline events (TECH_STACK §12).
 
 Events such as ``classified``, ``ocr_done``, ``extracted``, ``terminology_bound``, ``projected``,
-``vlm_json_partial`` and ``job_doc_failed`` are emitted through :func:`get_logger`.
+``vlm_json_partial`` and ``job_doc_failed`` are emitted through :func:`get_logger`. Every line
+carries the current ``trace_id`` / ``span_id`` and, when log export is on, is also shipped to
+Loki over OTLP (backlog E10-S3, ``cdi_adapter.tracing``).
 """
 
 from __future__ import annotations
@@ -10,6 +12,8 @@ import logging
 import sys
 
 import structlog
+
+from cdi_adapter import tracing
 
 _configured = False
 
@@ -24,7 +28,9 @@ def configure(level: str = "INFO", *, json: bool = True) -> None:
             structlog.contextvars.merge_contextvars,
             structlog.processors.add_log_level,
             structlog.processors.TimeStamper(fmt="iso", utc=True),
+            tracing.add_trace_ids,
             structlog.processors.format_exc_info,
+            tracing.ship_to_otel,
             renderer,
         ],
         wrapper_class=structlog.make_filtering_bound_logger(logging.getLevelName(level.upper())),

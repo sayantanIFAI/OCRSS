@@ -6,8 +6,9 @@ the payload to ``write_extraction``, which does all the database work in one tra
 
 * **Re-extraction supersedes** — ``purge_document_facts`` clears the prior attempt first.
 * ``extraction`` row: the payload verbatim + ``evidence_map`` (bN -> ocr_block uuid) + ``_partial``.
-* Identity: a ``patient_id`` passed in by the web-app job is used; otherwise the payload's
-  ``patient`` block goes through ``resolve_identity``. Every reading is stored as an alias.
+* Identity: a ``patient_id`` passed in by the web-app job is used; otherwise a document extracted
+  again keeps the patient it was filed under; otherwise the payload's ``patient`` block goes
+  through ``resolve_identity``. Every reading is stored as an alias.
 * **Existing-patient mismatch guard** — when the job was started against a registry patient,
   the extracted name / DOB must match (``names_match``, ``dob_match``); on a mismatch this
   document's facts are purged and :class:`IdentityMismatch` is raised (the job stops).
@@ -22,13 +23,15 @@ the payload to ``write_extraction``, which does all the database work in one tra
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Connection
+from sqlalchemy import Connection, text
 
-from cdi_adapter import repo
+from cdi_adapter import metrics, repo
+from cdi_adapter.config import get_settings
 from cdi_adapter.dates import parse_date
 from cdi_adapter.db import session_scope
 from cdi_adapter.extract.facts import ENCOUNTER_DATE_KEYS, FactDraft, facts_from_payload
@@ -38,7 +41,9 @@ from cdi_adapter.extract.prompt import (
     max_tokens_for,
 )
 from cdi_adapter.logging import get_logger
-from cdi_adapter.ml.client import MLClient, get_client, is_partial
+from cdi_adapter.ml.client import JsonRequest, MLClient, client_for, get_client, is_partial
+from cdi_adapter.modelops import router
+from cdi_adapter.modelops.router import Route
 from cdi_adapter.mpi import service as mpi
 from cdi_adapter.storage import ObjectStore, get_store
 
@@ -109,13 +114,17 @@ def write_extraction(
     patient_id: UUID | str | None = None,
     expected_patient: dict[str, Any] | None = None,
     model_name: str | None = None,
+    model_version: str | None = None,
 ) -> dict[str, Any]:
+    # the patient this document was already filed under (an earlier extraction of the same bytes)
+    prior = conn.execute(text("SELECT patient_id FROM source_document WHERE id = :d"),
+                         {"d": str(document_id)}).scalar_one_or_none()  # fmt: skip
     repo.purge_document_facts(conn, document_id)
     partial = is_partial(payload)
     extraction_id = repo.insert_extraction(
         conn, document_id=document_id, doc_type=doc_type, schema_id=SCHEMA_FOR_DOC_TYPE[doc_type],
-        model_name=model_name, model_version=None, payload=payload, evidence_map=block_id_map,
-        is_partial=partial, run_id=run_ids[-1] if run_ids else None,
+        model_name=model_name, model_version=model_version, payload=payload,
+        evidence_map=block_id_map, is_partial=partial, run_id=run_ids[-1] if run_ids else None,
     )  # fmt: skip
 
     cand = mpi.candidate_from_payload(payload)
@@ -123,6 +132,11 @@ def write_extraction(
         repo.purge_document_facts(conn, document_id)
         raise IdentityMismatch(document_id, expected_patient, cand)
     how = "given"
+    if patient_id is None and prior is not None:
+        # the same document uploaded again stays with its patient: a name-only reading never
+        # matches (no birth year / ABHA), so it used to mint a second record for the same person
+        # every time (2026-09-25: one image, two "Rahul"s). Re-filing is an MPI merge, not this.
+        patient_id, how = prior, "document"
     if patient_id is None:
         patient_id, how = mpi.resolve_identity(conn, cand)
     if cand.name or cand.sex or cand.dob or cand.age_text:
@@ -176,15 +190,23 @@ def write_extraction(
             "encounter_id": encounter_id, "facts": len(drafts), "partial": partial}  # fmt: skip
 
 
-def extract_document(
-    document_id: UUID | str,
-    *,
-    patient_id: UUID | str | None = None,
-    expected_patient: dict[str, Any] | None = None,
-    client: MLClient | None = None,
-    store: ObjectStore | None = None,
-    actor: str = "system",
-) -> dict[str, Any]:
+@dataclass
+class _Ctx:
+    """One document's extraction between start-up and the write. The single and the batched
+    path share it, so both do exactly the same database work."""
+
+    document_id: UUID | str
+    doc_type: str
+    cls: dict[str, Any] | None
+    blocks: list[dict[str, Any]]
+    pages: list[dict[str, Any]]
+    ocr_runs: list[Any]
+    run_id: Any
+    block_map: dict[str, str] = field(default_factory=dict)
+
+
+def _start(document_id: UUID | str, vlm: MLClient) -> _Ctx | dict[str, Any]:
+    """Loads classification + OCR and opens the ``extract`` run; an unknown type is skipped."""
     with session_scope() as conn:
         cls = repo.get_latest_classification(conn, document_id)
         doc_type = cls["doc_type"] if cls else None
@@ -196,49 +218,158 @@ def extract_document(
         pages = repo.get_pages(conn, document_id)
         ocr_runs = [r["id"] for r in repo.get_runs(conn, document_id)
                     if r["stage"] in ("ocr", "classify") and r["status"] == "ok"]  # fmt: skip
-    vlm = client or get_client()
     with session_scope() as conn:
         run_id = repo.start_run(conn, document_id=document_id, stage="extract",
-                                model_name=vlm.model)  # fmt: skip
-    try:
-        prompt, block_map = build_extraction_prompt(doc_type, blocks)
-        image = (store or get_store()).get_bytes(pages[0]["storage_key"]) if pages else None
-        payload = vlm.vlm_json(image, prompt, SCHEMA_FOR_DOC_TYPE[doc_type],
-                               max_tokens=max_tokens_for(doc_type))  # fmt: skip
-        model_stack = {"classifier": (cls or {}).get("method"),
-                       "ocr": blocks[0]["engine"] if blocks else None, "extractor": vlm.model,
-                       "schema": SCHEMA_FOR_DOC_TYPE[doc_type]}  # fmt: skip
-        with session_scope() as conn:
-            out = write_extraction(
-                conn, document_id=document_id, doc_type=doc_type, payload=payload,
-                block_id_map=block_map, blocks=blocks, run_ids=[*ocr_runs, run_id],
-                model_stack=model_stack, patient_id=patient_id,
-                expected_patient=expected_patient, model_name=vlm.model,
-            )  # fmt: skip
-            repo.set_document_status(conn, document_id, "extracted")
-            repo.finish_run(conn, run_id, metrics={"facts": out["facts"],
+                                model_name=vlm.model, model_version=vlm.version)  # fmt: skip
+    return _Ctx(document_id, doc_type, cls, blocks, pages, ocr_runs, run_id)
+
+
+def _request(ctx: _Ctx, store: ObjectStore | None) -> JsonRequest:
+    """The page-1 image + ``[bN]`` prompt + schema + token budget (S4)."""
+    prompt, ctx.block_map = build_extraction_prompt(ctx.doc_type, ctx.blocks)
+    image = (store or get_store()).get_bytes(ctx.pages[0]["storage_key"]) if ctx.pages else None
+    return JsonRequest(image, prompt, SCHEMA_FOR_DOC_TYPE[ctx.doc_type],
+                       max_tokens_for(ctx.doc_type))  # fmt: skip
+
+
+def _complete(ctx: _Ctx, payload: dict[str, Any], vlm: MLClient, *,
+              patient_id: UUID | str | None, expected_patient: dict[str, Any] | None,
+              actor: str) -> dict[str, Any]:  # fmt: skip
+    model_stack = {"classifier": (ctx.cls or {}).get("method"),
+                   "ocr": ctx.blocks[0]["engine"] if ctx.blocks else None,
+                   "extractor": vlm.model, "extractor_version": vlm.version,
+                   "schema": SCHEMA_FOR_DOC_TYPE[ctx.doc_type]}  # fmt: skip
+    with session_scope() as conn:
+        out = write_extraction(
+            conn, document_id=ctx.document_id, doc_type=ctx.doc_type, payload=payload,
+            block_id_map=ctx.block_map, blocks=ctx.blocks, run_ids=[*ctx.ocr_runs, ctx.run_id],
+            model_stack=model_stack, patient_id=patient_id,
+            expected_patient=expected_patient, model_name=vlm.model, model_version=vlm.version,
+        )  # fmt: skip
+        repo.set_document_status(conn, ctx.document_id, "extracted")
+        repo.finish_run(conn, ctx.run_id, metrics={"facts": out["facts"],
                                                    "partial": out["partial"]})  # fmt: skip
-            repo.write_audit(conn, actor=actor, action="create", entity="extraction",
-                             entity_id=out["extraction_id"],
-                             detail={"document_id": str(document_id), "facts": out["facts"],
-                                     "partial": out["partial"]})  # fmt: skip
-    except IdentityMismatch as exc:
-        with session_scope() as conn:
-            repo.purge_document_facts(conn, document_id)
-            repo.fail_run(conn, run_id, error="identity_mismatch")
-            repo.write_audit(conn, actor=actor, action="update", entity="source_document",
-                             entity_id=document_id,
-                             detail={"stage": "extract", "identity_mismatch": True})  # fmt: skip
-        log.warning("identity_mismatch", document_id=str(document_id),
-                    found=exc.found.as_json())  # fmt: skip
-        raise
-    except Exception as exc:
-        with session_scope() as conn:
-            repo.fail_run(conn, run_id, error=f"{type(exc).__name__}: {exc}")
-            repo.set_document_status(conn, document_id, "error",
-                                     error={"stage": "extract", "message": str(exc)})  # fmt: skip
-        log.error("extract_failed", document_id=str(document_id), error=str(exc))
-        raise
-    log.info("extracted", document_id=str(document_id), facts=out["facts"],
+        repo.write_audit(conn, actor=actor, action="create", entity="extraction",
+                         entity_id=out["extraction_id"],
+                         detail={"document_id": str(ctx.document_id), "facts": out["facts"],
+                                 "partial": out["partial"]})  # fmt: skip
+    metrics.EXTRACTIONS.labels("partial" if out["partial"] else "complete").inc()
+    metrics.MODEL_EXTRACTIONS.labels(vlm.role, "partial" if out["partial"] else "complete").inc()
+    log.info("extracted", document_id=str(ctx.document_id), facts=out["facts"],
              partial=out["partial"])  # fmt: skip
     return out
+
+
+def _record_failure(ctx: _Ctx, exc: Exception, actor: str, vlm: MLClient | None = None) -> None:
+    if isinstance(exc, IdentityMismatch):
+        with session_scope() as conn:
+            repo.purge_document_facts(conn, ctx.document_id)
+            repo.fail_run(conn, ctx.run_id, error="identity_mismatch")
+            repo.write_audit(conn, actor=actor, action="update", entity="source_document",
+                             entity_id=ctx.document_id,
+                             detail={"stage": "extract", "identity_mismatch": True})  # fmt: skip
+        log.warning("identity_mismatch", document_id=str(ctx.document_id),
+                    found=exc.found.as_json())  # fmt: skip
+        return
+    if vlm is not None:  # a failed extraction on this side of the rollout (E10-S5)
+        metrics.MODEL_EXTRACTIONS.labels(vlm.role, "failed").inc()
+    with session_scope() as conn:
+        repo.fail_run(conn, ctx.run_id, error=f"{type(exc).__name__}: {exc}")
+        repo.set_document_status(conn, ctx.document_id, "error",
+                                 error={"stage": "extract", "message": str(exc)})  # fmt: skip
+    log.error("extract_failed", document_id=str(ctx.document_id), error=str(exc))
+
+
+def extract_document(
+    document_id: UUID | str,
+    *,
+    patient_id: UUID | str | None = None,
+    expected_patient: dict[str, Any] | None = None,
+    client: MLClient | None = None,
+    store: ObjectStore | None = None,
+    actor: str = "system",
+) -> dict[str, Any]:
+    vlm = client or get_client(document_id)
+    ctx = _start(document_id, vlm)
+    if isinstance(ctx, dict):
+        return ctx
+    try:
+        req = _request(ctx, store)
+        payload = vlm.vlm_json(req.image_png, req.prompt, req.schema, max_tokens=req.max_tokens)
+        return _complete(ctx, payload, vlm, patient_id=patient_id,
+                         expected_patient=expected_patient, actor=actor)  # fmt: skip
+    except Exception as exc:
+        _record_failure(ctx, exc, actor, vlm)
+        raise
+
+
+def extract_documents(
+    document_ids: list[UUID | str],
+    *,
+    patient_id: UUID | str | None = None,
+    expected_patient: dict[str, Any] | None = None,
+    client: MLClient | None = None,
+    store: ObjectStore | None = None,
+    actor: str = "system",
+) -> list[dict[str, Any] | Exception]:
+    """``extract_document`` for several documents, with the first model attempt in one batched
+    call (backlog E2-S8).
+
+    Returns each document's result, or the exception it would have raised, in order. One
+    document's failure never touches the others. Each document keeps its own prompt, evidence
+    map, run, provenance and identity check. If the batched call itself fails, every document is
+    sent alone instead, so batching can change speed but never loses a document.
+    """
+    if client is None and get_settings().mlserve_backend != "stub":
+        # a batch never mixes the two sides of a canary (E10-S5): one batch per route
+        by_route: dict[Route, list[int]] = {}
+        for i, doc in enumerate(document_ids):
+            by_route.setdefault(router.route(doc), []).append(i)
+        if len(by_route) > 1:
+            out: list[dict[str, Any] | Exception] = [RuntimeError("not extracted")] * len(
+                document_ids
+            )
+            for rt, idx in by_route.items():
+                part = extract_documents(
+                    [document_ids[i] for i in idx], patient_id=patient_id,
+                    expected_patient=expected_patient, client=client_for(rt), store=store,
+                    actor=actor,
+                )  # fmt: skip
+                for i, res in zip(idx, part, strict=True):
+                    out[i] = res
+            return out
+        client = client_for(next(iter(by_route))) if by_route else None
+    vlm = client or get_client()
+    results: list[dict[str, Any] | Exception | None] = [None] * len(document_ids)
+    pending: list[tuple[int, _Ctx, JsonRequest]] = []
+    for i, doc in enumerate(document_ids):
+        try:
+            ctx = _start(doc, vlm)
+        except Exception as exc:  # reported to the caller for this document only
+            results[i] = exc
+            continue
+        if isinstance(ctx, dict):
+            results[i] = ctx
+            continue
+        try:
+            pending.append((i, ctx, _request(ctx, store)))
+        except Exception as exc:
+            _record_failure(ctx, exc, actor)
+            results[i] = exc
+    payloads: list[dict[str, Any] | None] = [None] * len(pending)
+    if len(pending) > 1:
+        try:
+            payloads = list(vlm.vlm_json_batch([req for _, _, req in pending]))
+        except Exception as exc:  # fall back to one call per document
+            log.warning("extract_batch_failed", documents=len(pending), error=str(exc))
+    for (i, ctx, req), payload in zip(pending, payloads, strict=True):
+        try:
+            if payload is None:
+                payload = vlm.vlm_json(req.image_png, req.prompt, req.schema,
+                                       max_tokens=req.max_tokens)  # fmt: skip
+            results[i] = _complete(ctx, payload, vlm, patient_id=patient_id,
+                                   expected_patient=expected_patient, actor=actor)  # fmt: skip
+        except Exception as exc:
+            _record_failure(ctx, exc, actor, vlm)
+            results[i] = exc
+    return [r if r is not None else RuntimeError("not extracted") for r in results]

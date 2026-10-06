@@ -17,6 +17,7 @@ References are ``urn:uuid:`` full-urls (ABDM document-bundle style); profiles ar
 
 from __future__ import annotations
 
+import html
 import re
 import uuid
 from datetime import date, datetime
@@ -32,7 +33,14 @@ MPI_SYSTEM = "https://careflow.clinic/mpi"
 LEGACY_MRN_SYSTEM = "urn:cdi:legacy-mrn"
 BUNDLE_ID_SYSTEM = "urn:cdi:bundle"
 FACILITY_NAME = "CareFlow Polyclinic"  # ARCHITECTURE §7 branding
-# §7.2: "scans over 700 KB are referenced by URL rather than base64-inlined"
+FACILITY_ID = "CAREFLOW-POLYCLINIC-1"  # the clinic's own id until its HFR id (E8-S1)
+FACILITY_SYSTEM = "https://careflow.clinic/facility"
+HFR_SYSTEM = "https://facility.ndhm.gov.in"
+PRACTITIONER_SYSTEM = "https://careflow.clinic/practitioner"
+V2_0203 = "http://terminology.hl7.org/CodeSystem/v2-0203"
+NDHM_ID_TYPE = "https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-identifier-type-code"
+# §7.2 used to reference scans over 700 KB by URL. The ABDM profiles require the bytes
+# (DocumentReference / Binary / Media ``data`` 1..1), so every scan is inlined, the URL kept too
 INLINE_MAX_BYTES = 700_000
 
 
@@ -105,19 +113,31 @@ def _quantity(value: Any, unit: str | None) -> dict[str, Any]:
 # ------------------------------------------------------------------ actors
 
 
+def _id_type(system: str, code: str, display: str, text: str | None = None) -> dict[str, Any]:
+    """An identifier type the ABDM profiles require on every identifier (Patient, Organization,
+    Practitioner: ``identifier.type`` 1..1, coded, bound to ``ndhm-identifier-type-code``)."""
+    return {"coding": [{"system": system, "code": code, "display": display}],
+            "text": text or display}  # fmt: skip
+
+
 def patient(p: dict[str, Any], ref: str) -> dict[str, Any]:
+    mr = _id_type(V2_0203, "MR", "Medical record number")
+    abha = _id_type(NDHM_ID_TYPE, "ABHA", "Ayushman Bharat Health Account (ABHA) ID")
     ids = []
     if p.get("mpi_id"):
-        ids.append({"use": "usual", "system": MPI_SYSTEM, "value": p["mpi_id"]})
+        ids.append({"use": "usual", "type": mr, "system": MPI_SYSTEM, "value": p["mpi_id"]})
     if p.get("abha_number"):
         ids.append({"use": "official", "system": ABHA_SYSTEM, "value": p["abha_number"],
-                    "type": {"text": "ABHA number"}})  # fmt: skip
+                    "type": {**abha, "text": "ABHA number"}})  # fmt: skip
     if p.get("abha_address"):
         ids.append({"system": ABHA_ADDRESS_SYSTEM, "value": p["abha_address"],
-                    "type": {"text": "ABHA address"}})  # fmt: skip
+                    "type": {**abha, "text": "ABHA address"}})  # fmt: skip
     if p.get("legacy_mrn"):
         ids.append({"system": LEGACY_MRN_SYSTEM, "value": p["legacy_mrn"],
-                    "type": {"text": "Legacy MRN"}})  # fmt: skip
+                    "type": {**mr, "text": "Legacy MRN"}})  # fmt: skip
+    if not ids:  # Patient.identifier is 1..*: the record's own patient id, never invented data
+        ids.append({"use": "temp", "type": mr, "system": "urn:cdi:patient",
+                    "value": ref.split(":")[-1]})  # fmt: skip
     res: dict[str, Any] = {"resourceType": "Patient", "id": ref.split(":")[-1],
                            "meta": _meta("Patient"), "identifier": ids}  # fmt: skip
     if p.get("name"):
@@ -129,16 +149,27 @@ def patient(p: dict[str, Any], ref: str) -> dict[str, Any]:
     return res
 
 
-def organization(name: str, ref: str) -> dict[str, Any]:
-    # HFR id: backlog E8-S1 registers the facility and adds the identifier
+def organization(name: str, ref: str, facility_id: str = FACILITY_ID,
+                 hfr_id: str | None = None) -> dict[str, Any]:  # fmt: skip
+    """The facility. ``Organization.identifier`` is 1..* in the ABDM profile: its HFR id once the
+    facility is registered (backlog E8-S1, ``CDI_FACILITY_HFR_ID``), else the clinic's own id."""
+    ident = ({"type": _id_type(V2_0203, "PRN", "Provider number", "HFR ID"),
+              "system": HFR_SYSTEM, "value": hfr_id} if hfr_id else
+             {"type": _id_type(V2_0203, "PRN", "Provider number", "Facility ID"),
+              "system": FACILITY_SYSTEM, "value": facility_id})  # fmt: skip
     return {"resourceType": "Organization", "id": ref.split(":")[-1],
-            "meta": _meta("Organization"), "name": name}  # fmt: skip
+            "meta": _meta("Organization"), "identifier": [ident], "name": name}  # fmt: skip
 
 
 def practitioner(name: str | None, ref: str) -> dict[str, Any]:
-    # HPR id: backlog E8-S1
+    """The prescriber. ``Practitioner.identifier`` is 1..* in the ABDM profile: until the
+    doctor's HPR id is known (backlog E8-S1) it is this record's own practitioner id, typed
+    "Other identifier" (a registration number is never guessed)."""
     return {"resourceType": "Practitioner", "id": ref.split(":")[-1],
             "meta": _meta("Practitioner"),
+            "identifier": [{"type": _id_type(NDHM_ID_TYPE, "OIN", "Other identifier",
+                                             "CareFlow practitioner id"),
+                            "system": PRACTITIONER_SYSTEM, "value": ref.split(":")[-1]}],
             "name": [{"text": name or "Attending clinician"}]}  # fmt: skip
 
 
@@ -161,8 +192,10 @@ def encounter(enc: dict[str, Any], ref: str, patient_ref: str) -> dict[str, Any]
 
 def condition(f, ref, pat, enc) -> dict[str, Any]:
     cc = codeable(f)
-    if f.get("icd10"):
-        cc.setdefault("coding", []).append({"system": ICD10, "code": f["icd10"]})
+    if f.get("icd10"):  # the ABDM ICD-10 slice needs a display: the same concept's text
+        cc.setdefault("coding", []).append(
+            {"system": ICD10, "code": f["icd10"], "display": f.get("code_display") or cc["text"]}
+        )
     return {
         "resourceType": "Condition", "id": ref.split(":")[-1], "meta": _meta("Condition"),
         "clinicalStatus": {"coding": [{"system": _COND_CLINICAL, "code": "active"}]},
@@ -196,12 +229,22 @@ def measured_observation(f, ref, pat, enc) -> dict[str, Any]:
     }  # fmt: skip
     if f.get("effective_time"):
         res["effectiveDateTime"] = _iso(f["effective_time"])
+    bp = re.match(r"^\s*(\d{2,3})\s*/\s*(\d{2,3})\s*$", f.get("value_text") or "")
     if f.get("value_num") is not None:
         res["valueQuantity"] = _quantity(f["value_num"], f.get("value_unit_ucum"))
-    elif f.get("value_text"):
+    elif f.get("value_text") and not (bp and not lab):
         res["valueString"] = f["value_text"]
-    bp = re.match(r"^\s*(\d{2,3})\s*/\s*(\d{2,3})\s*$", f.get("value_text") or "")
-    if not lab and bp:  # blood pressure: LOINC 8480-6 / 8462-4 components (§8.2)
+    # the FHIR vital-signs SpO2 profile requires its "magic" LOINC 2708-6 beside the pulse-oximetry
+    # code 59408-5 (the validator's OxygenSatCode rule)
+    codings = res["code"].get("coding") or []
+    if any(c.get("code") == "59408-5" for c in codings) and not any(
+        c.get("code") == "2708-6" for c in codings
+    ):
+        codings.append(
+            {"system": LOINC, "code": "2708-6", "display": "Oxygen saturation in Arterial blood"}
+        )
+    if not lab and bp:  # blood pressure: LOINC 8480-6 / 8462-4 components (§8.2), no value[x]:
+        # the FHIR bp profile allows only a Quantity there, and the reading is in the components
         res["component"] = [
             {"code": {"coding": [{"system": LOINC, "code": code, "display": display}]},
              "valueQuantity": _quantity(value, "mm[Hg]")}
@@ -230,11 +273,67 @@ def _timing(fpd: float | None) -> dict[str, Any] | None:
     return {"repeat": {"frequency": 1, "period": round(1 / fpd), "periodUnit": "d"}}
 
 
-def medication_request(f, ref, pat, enc, practitioner_ref) -> dict[str, Any]:
-    med = codeable({**f, "local_text": f.get("drug_text") or f.get("local_text")})
-    dosage: dict[str, Any] = {"text": " ".join(str(x) for x in (
-        f.get("local_text"), f.get("frequency_code"), f.get("instructions")) if x)}  # fmt: skip
-    if t := _timing(f.get("frequency_per_day")):
+def _num(x: Any) -> str:
+    v = float(x)
+    return str(int(v)) if v.is_integer() else f"{v:g}"
+
+
+# a fact text that is a written dosage line, not just a drug name: it has a strength ("500 mg"),
+# a dose-slot pattern ("1-0-1") or a duration ("x 30 days"). "Vitamin D3" is a name.
+_A_DOSAGE_LINE = re.compile(r"\b\d+(?:\.\d+)?\s*(?:mg|mcg|µg|g|gm|ml|iu|units?)\b"
+                            r"|\b\d-\d-\d\b|\bx\s*\d+", re.I)  # fmt: skip
+
+
+def _times_a_day(fpd: float | None) -> str | None:
+    """The frequency in words when only the per-day count is known (no written code)."""
+    if not fpd:
+        return None
+    words = {1: "once daily", 2: "twice daily", 3: "three times daily", 4: "four times daily"}
+    if fpd >= 1:
+        return words.get(round(fpd), f"{_num(round(fpd))} times daily")
+    return f"once every {round(1 / fpd)} days"
+
+
+def _med_parts(f: dict[str, Any]) -> tuple[str | None, str | None, str | None]:
+    """(strength, dose, duration) as a reader writes them: "100 mg", "1 tab", "5 days"."""
+    strength = (f"{_num(f['strength_num'])} {f.get('strength_unit') or ''}".strip()
+                if f.get("strength_num") is not None else None)  # fmt: skip
+    dose = None
+    if f.get("dose_num") is not None:
+        unit = str(f.get("dose_unit_ucum") or "").strip("{}")
+        dose = f"{_num(f['dose_num'])} {'tab' if unit == 'tbl' else unit}".strip()
+    duration = f"{_num(f['duration_days'])} days" if f.get("duration_days") else None
+    return strength, dose, duration
+
+
+def medication_request(f, ref, pat, enc, practitioner_ref,
+                       authored: str | None = None) -> dict[str, Any]:  # fmt: skip
+    """The prescribed medicine with everything read from the line (2026-09-25: strength,
+    duration and instructions were read and stored but left out of the resource): the name
+    with its strength ("Aceclofenac 100 mg"), a complete dosage line ("100 mg · 1-0-1 · for 5
+    days · after food"), the timing with its bounds, and the supply duration."""
+    name = f.get("drug_text") or f.get("local_text")
+    strength, dose, duration = _med_parts(f)
+    med = codeable({**f, "local_text": f"{name} {strength}" if strength else name})
+    sig = [strength, dose, f.get("frequency_code") or _times_a_day(f.get("frequency_per_day")),
+           f"for {duration}" if duration else None, f.get("instructions")]  # fmt: skip
+    # the line as written, when the fact carries it ("Tab Metformin 500 mg 1-0-1 x 30 days"),
+    # is the most faithful text; a bare drug name gets the line rebuilt from its parts
+    written = str(f.get("local_text") or "")
+    as_written = written if _A_DOSAGE_LINE.search(written) else None
+    dosage: dict[str, Any] = {
+        "text": as_written or " · ".join(str(x) for x in sig if x) or str(name)
+    }
+    if as_written and f.get("instructions") and f["instructions"] not in as_written:
+        dosage["text"] += f" · {f['instructions']}"
+    if f.get("instructions"):
+        dosage["patientInstruction"] = str(f["instructions"])
+    t = _timing(f.get("frequency_per_day"))
+    if f.get("duration_days"):
+        bounds = {"value": float(f["duration_days"]), "unit": "days", "system": UCUM, "code": "d"}
+        t = t or {"repeat": {}}
+        t["repeat"]["boundsDuration"] = bounds
+    if t:
         dosage["timing"] = t
     if f.get("prn"):
         dosage["asNeededBoolean"] = True
@@ -251,7 +350,8 @@ def medication_request(f, ref, pat, enc, practitioner_ref) -> dict[str, Any]:
         "resourceType": "MedicationRequest", "id": ref.split(":")[-1],
         "meta": _meta("MedicationRequest"), "status": "active", "intent": "order",
         "medicationCodeableConcept": med, "subject": {"reference": pat},
-        "encounter": {"reference": enc}, "authoredOn": _iso(f.get("asserted_time")),
+        # authoredOn is 1..1 in the ABDM profile: when the line was recorded, else the record's date
+        "encounter": {"reference": enc}, "authoredOn": _iso(f.get("asserted_time")) or authored,
         "requester": {"reference": practitioner_ref}, "dosageInstruction": [dosage],
     }  # fmt: skip
     if f.get("duration_days"):
@@ -287,25 +387,60 @@ def allergy(f, ref, pat) -> dict[str, Any]:
     return res
 
 
+# the report type when the document does not name a coded one (ABDM: DiagnosticReport.code coded)
+_LAB_REPORT = {"system": LOINC, "code": "11502-2", "display": "Laboratory report"}
+_IMAGING_REPORT = {"system": LOINC, "code": "18748-4", "display": "Diagnostic imaging study"}
+# DiagnosticReport.conclusion is 1..1 in both ABDM report profiles; when the report states none,
+# this says so (it is not a clinical statement, and none is invented)
+NO_CONCLUSION = "No overall conclusion is stated on the source report; see the individual results."
+
+
 def diagnostic_report(code: dict[str, Any], ref, pat, enc, results: list[str],
-                      conclusion: str | None) -> dict[str, Any]:  # fmt: skip
+                      conclusion: str | None, *, interpreter: str,
+                      media: list[str] | None = None) -> dict[str, Any]:  # fmt: skip
+    """``DiagnosticReportLab`` (with results) or ``DiagnosticReportImaging`` (with the scan as
+    Media): ABDM requires a coded category and code, a results interpreter and a conclusion."""
+    imaging = not results
+    code = dict(code)
+    if not code.get("coding"):
+        code["coding"] = [_IMAGING_REPORT if imaging else _LAB_REPORT]
+    # ABDM fixes category.coding.system to SNOMED CT: the specialty that reports it
+    cat = ("394914008", "Radiology") if imaging else ("394595002", "Pathology")
     res: dict[str, Any] = {
         "resourceType": "DiagnosticReport", "id": ref.split(":")[-1],
-        "meta": _meta("DiagnosticReportLab" if results else "DiagnosticReportImaging"),
-        "status": "final", "code": code, "subject": {"reference": pat},
-        "encounter": {"reference": enc}, "result": [{"reference": r} for r in results],
+        "meta": _meta("DiagnosticReportImaging" if imaging else "DiagnosticReportLab"),
+        "status": "final",
+        "category": [{"coding": [{"system": SNOMED, "code": cat[0], "display": cat[1]}]}],
+        "code": code, "subject": {"reference": pat}, "encounter": {"reference": enc},
+        "resultsInterpreter": [{"reference": interpreter}],
+        "result": [{"reference": r} for r in results],
+        "media": [{"link": {"reference": m}} for m in media or []],
+        "conclusion": conclusion or NO_CONCLUSION,
     }  # fmt: skip
-    if conclusion:
-        res["conclusion"] = conclusion
     return res
+
+
+def media(doc: dict[str, Any], ref, pat, *, data_b64: str) -> dict[str, Any]:
+    """The scanned page as ``Media`` (``DiagnosticReportImaging.media`` is 1..*)."""
+    return {
+        "resourceType": "Media", "id": ref.split(":")[-1], "meta": _meta("Media"),
+        "status": "completed", "subject": {"reference": pat},
+        "content": {"contentType": doc["mime_type"], "data": data_b64, "title": doc["filename"]},
+    }  # fmt: skip
+
+
+def binary(doc: dict[str, Any], ref, *, data_b64: str) -> dict[str, Any]:
+    """The scanned prescription as ``Binary``, the PrescriptionRecord's document slot."""
+    return {"resourceType": "Binary", "id": ref.split(":")[-1], "meta": _meta("Binary"),
+            "contentType": doc["mime_type"], "data": data_b64}  # fmt: skip
 
 
 def document_reference(doc: dict[str, Any], ref, pat, *, data_b64: str | None,
                        url: str | None) -> dict[str, Any]:  # fmt: skip
     att: dict[str, Any] = {"contentType": doc["mime_type"], "title": doc["filename"]}
-    if data_b64 is not None:
+    if data_b64 is not None:  # ABDM: attachment.data 1..1
         att["data"] = data_b64
-    elif url:
+    if url:
         att["url"] = url
     return {
         "resourceType": "DocumentReference", "id": ref.split(":")[-1],
@@ -318,7 +453,9 @@ def document_reference(doc: dict[str, Any], ref, pat, *, data_b64: str | None,
 def provenance(ref, targets: list[str], doc_ref: str, org_ref: str,
                model_stack: str, recorded: str) -> dict[str, Any]:  # fmt: skip
     return {
-        "resourceType": "Provenance", "id": ref.split(":")[-1], "meta": _meta("Provenance"),
+        # ABDM 6.5.0 defines no Provenance profile: the base FHIR R4 one
+        "resourceType": "Provenance", "id": ref.split(":")[-1],
+        "meta": {"profile": ["http://hl7.org/fhir/StructureDefinition/Provenance"]},
         "target": [{"reference": t} for t in targets], "recorded": recorded,
         "agent": [{"type": {"text": "assembler"}, "who": {"reference": org_ref},
                    "onBehalfOf": {"reference": org_ref}}],
@@ -345,10 +482,44 @@ def composition(ref, doc_type, pat, enc, author, custodian, sections: dict[str, 
     if code:
         ctype["coding"] = [{"system": SNOMED, "code": code, "display": title}]
     secs: list[dict[str, Any]] = []
+    # ABDM 6.5.0: these three records have exactly ONE section, with closed entry slices
+    # (StructureDefinition-PrescriptionRecord / -DiagnosticReportRecord / -HealthDocumentRecord)
+    single = {
+        # MedicationRequest 0..* + Binary 0..1 (the scan); entry.type is 1..1 in each slice
+        "PrescriptionRecord": [
+            ("MedicationRequest", sections.get("medication", [])),
+            ("Binary", sections.get("binary", [])[:1]),
+        ],
+        # DiagnosticReport 0..1 + DocumentReference 0..1; results hang off the report
+        "DiagnosticReportRecord": [
+            ("DiagnosticReport", sections.get("report", [])[:1]),
+            ("DocumentReference", sections.get("document", [])[:1]),
+        ],
+        # DocumentReference 1..*
+        "HealthDocumentRecord": [("DocumentReference", sections.get("document", []))],
+    }.get(profile)
+    if single is not None:
+        entries = [{"reference": r, "type": rtype} for rtype, refs in single for r in refs]
+        sec: dict[str, Any] = {"title": title, "entry": entries}
+        if advice:  # the written advice stays with the record, as the section's narrative
+            items = "".join(f"<li>{html.escape(str(a))}</li>" for a in advice)
+            sec["text"] = {
+                "status": "generated",
+                "div": f'<div xmlns="http://www.w3.org/1999/xhtml"><ul>{items}</ul></div>',
+            }
+        if code:
+            sec["code"] = {"coding": [{"system": SNOMED, "code": code, "display": title}]}
+        return {
+            "resourceType": "Composition", "id": ref.split(":")[-1], "meta": _meta(profile),
+            "status": "final" if final else "preliminary", "type": ctype,
+            "subject": {"reference": pat}, "encounter": {"reference": enc}, "date": date_iso,
+            "author": [{"reference": author}], "custodian": {"reference": custodian},
+            "title": title, "section": [sec],
+        }  # fmt: skip
     for sec_title, key in SECTION_ORDER:
         if key == "advice":
             if advice:
-                items = "".join(f"<li>{a}</li>" for a in advice)
+                items = "".join(f"<li>{html.escape(str(a))}</li>" for a in advice)
                 div = f'<div xmlns="http://www.w3.org/1999/xhtml"><ul>{items}</ul></div>'
                 secs.append({"title": sec_title, "text": {"status": "generated", "div": div}})
             continue
@@ -363,12 +534,25 @@ def composition(ref, doc_type, pat, enc, author, custodian, sections: dict[str, 
     }  # fmt: skip
 
 
+def prune(x: Any) -> Any:
+    """FHIR JSON has no ``null`` and no empty array or object: drop them, at every depth (a
+    missing date used to come out as ``"authoredOn": null``)."""
+    if isinstance(x, dict):
+        out = {k: prune(v) for k, v in x.items()}
+        return {k: v for k, v in out.items() if v is not None and v != [] and v != {}}
+    if isinstance(x, list):
+        return [v for v in (prune(i) for i in x) if v is not None and v != [] and v != {}]
+    return x
+
+
 def bundle(entries: list[tuple[str, dict[str, Any]]], timestamp: str) -> dict[str, Any]:
+    # DocumentBundle: meta.versionId 1..1 (a document bundle is a new version when re-projected)
     return {
-        "resourceType": "Bundle", "id": str(uuid.uuid4()), "meta": _meta("DocumentBundle"),
+        "resourceType": "Bundle", "id": str(uuid.uuid4()),
+        "meta": {**_meta("DocumentBundle"), "versionId": "1", "lastUpdated": timestamp},
         "identifier": {"system": BUNDLE_ID_SYSTEM, "value": str(uuid.uuid4())},
         "type": "document", "timestamp": timestamp,
-        "entry": [{"fullUrl": url, "resource": res} for url, res in entries],
+        "entry": [{"fullUrl": url, "resource": prune(res)} for url, res in entries],
     }  # fmt: skip
 
 
@@ -404,7 +588,10 @@ def _lint(b: dict[str, Any]) -> list[dict[str, str]]:
                 issues.append({"severity": "error", "code": "dangling-reference",
                                "message": f"{e['fullUrl']} -> {r}"})  # fmt: skip
         res = e["resource"]
-        if res["resourceType"] == "Observation" and not any(k.startswith("value") for k in res):
+        # an Observation carries a value, or (blood pressure) its values in components
+        if res["resourceType"] == "Observation" and not any(
+            k.startswith("value") or k == "component" for k in res
+        ):
             issues.append({"severity": "error", "code": "observation-no-value",
                            "message": e["fullUrl"]})  # fmt: skip
         if res["resourceType"] == "Condition" and not res.get("code", {}).get("coding"):

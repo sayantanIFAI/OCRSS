@@ -63,7 +63,7 @@ def test_pages_round_trip_in_order(engine):
         assert repo.get_document(c, doc)["page_count"] == 3
 
 
-def test_ocr_blocks_bulk_insert_ordered_read_and_delete(engine):
+def test_ocr_blocks_bulk_insert_ordered_read_and_supersede(engine):
     with engine.begin() as c:
         doc, (p1, p2) = _doc_with_pages(c, 2)
         run = repo.start_run(c, document_id=doc, stage="ocr", model_name="rapidocr-onnxruntime")
@@ -88,8 +88,16 @@ def test_ocr_blocks_bulk_insert_ordered_read_and_delete(engine):
                  "to_tsvector('simple', text) @@ to_tsquery('simple', 'page1')"), {"d": doc}
         ).scalar_one()  # fmt: skip
         assert hits == 2  # GIN full-text index path works
-        assert repo.delete_ocr_blocks_for_document(c, doc) == 3
+        # E4-S7: a new run supersedes the observations (a pointer); nothing is deleted
+        assert repo.supersede_ocr_observations(c, doc, run) == 3
         assert repo.get_ocr_blocks(c, doc) == []
+        kept = c.execute(
+            text(
+                "SELECT count(*) FROM ocr_observation WHERE document_id = :d AND superseded_by = :r"
+            ),
+            {"d": doc, "r": run},
+        ).scalar_one()
+        assert kept == 3
 
 
 def test_ocr_block_bbox_must_have_four_ints(engine):

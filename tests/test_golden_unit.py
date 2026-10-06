@@ -118,3 +118,33 @@ def test_alert_appends_one_line_per_drifting_run(tmp_path: Path) -> None:
     assert len(lines) == 2
     assert "GOLDEN DRIFT baseline=real_vlm mode=full: totals.facts: expected 15, got 14" in lines[0]
     assert lines[1].endswith("a; b")
+
+
+def test_extra_document_is_drift_even_if_counts_match() -> None:
+    measured = _measured()
+    measured["documents"]["unexpected"] = measured["documents"]["prescription_00"]
+    assert "unexpected: unexpected document in the run" in gp.compare(measured, GOLDEN["stub"])
+
+
+def test_full_run_uses_exactly_three_pdfs_in_baseline_order(monkeypatch, tmp_path) -> None:
+    import pipeline_smoke
+
+    monkeypatch.setattr(gp.subprocess, "run", lambda *a, **kw: None)
+    seen = []
+
+    def run(folder, full, *, files):
+        seen.extend(files)
+        return [{"file": str(f), "document_id": str(i)} for i, f in enumerate(files)]
+
+    monkeypatch.setattr(pipeline_smoke, "run", run)
+    assert list(gp.run_full(tmp_path)) == list(GOLDEN["stub"]["documents"])
+    assert [p.name for p in seen] == [f"{n}.pdf" for n in GOLDEN["stub"]["documents"]]
+
+
+def test_fresh_db_rejects_arbitrary_targets_before_connecting(monkeypatch) -> None:
+    import pytest
+
+    monkeypatch.setattr(gp, "create_engine", lambda *a, **k: pytest.fail("must not connect"))
+    for name in ("postgres", "customer", 'cdi_golden"; SELECT 1; --'):
+        with pytest.raises(SystemExit, match="must be cdi_golden"):
+            gp.prepare_fresh_db(name)

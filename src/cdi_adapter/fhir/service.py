@@ -59,10 +59,49 @@ def bundle_hash(b: dict[str, Any]) -> str:
 
 
 def _scan(doc: dict[str, Any], store: ObjectStore | None) -> tuple[str | None, str | None]:
-    if doc["byte_size"] <= R.INLINE_MAX_BYTES:
-        raw = (store or get_store()).get_bytes(doc["storage_key"])
-        return base64.b64encode(raw).decode(), None
-    return None, R.scan_url(doc, get_settings().s3_bucket)
+    """The scan's bytes (base64) and, for a large one, also its object-store URL. The ABDM
+    profiles require the bytes in the bundle (DocumentReference / Binary / Media ``data`` 1..1)."""
+    raw = (store or get_store()).get_bytes(doc["storage_key"])
+    url = (
+        R.scan_url(doc, get_settings().s3_bucket) if doc["byte_size"] > R.INLINE_MAX_BYTES else None
+    )
+    return base64.b64encode(raw).decode(), url
+
+
+Parts = tuple[list[tuple[str, dict[str, Any]]], dict[str, list[str]], str]
+
+
+def document_parts(artifact: str, doc: dict[str, Any], ref: Any, p_ref: str, e_ref: str,
+                   pr_ref: str, *, lab_refs: list[str], report_texts: list[str],
+                   data_b64: str | None, url: str | None) -> Parts:  # fmt: skip
+    """The artifact-specific parts of a document bundle (ABDM 6.5.0), shared by the S9 projection
+    and the canonical bundle: the scan (``Binary`` for a PrescriptionRecord, else
+    ``DocumentReference``) and, for a DiagnosticReportRecord or any lab results, the report
+    (``DiagnosticReportLab`` over the results, else ``DiagnosticReportImaging`` over the scan as
+    ``Media``). Returns (entries, section refs, the scan's reference for Provenance)."""
+    entries: list[tuple[str, dict[str, Any]]] = []
+    sections: dict[str, list[str]] = {}
+    if artifact == "PrescriptionRecord" and data_b64 is not None:
+        src = ref("binary")
+        entries.append((src, R.binary(doc, src, data_b64=data_b64)))
+        sections["binary"] = [src]
+    else:
+        src = ref("docref")
+        entries.append((src, R.document_reference(doc, src, p_ref, data_b64=data_b64, url=url)))
+        sections["document"] = [src]
+    if artifact == "DiagnosticReportRecord" or lab_refs:
+        dr, media_refs = ref("labreport"), []
+        if not lab_refs and data_b64 is not None:  # an imaging / narrative report: the scan
+            m = ref("media")
+            entries.append((m, R.media(doc, m, p_ref, data_b64=data_b64)))
+            media_refs = [m]
+        if lab_refs or media_refs:
+            code = {"text": "Laboratory report" if lab_refs else "Diagnostic imaging report"}
+            entries.append((dr, R.diagnostic_report(
+                code, dr, p_ref, e_ref, lab_refs, "; ".join(report_texts) or None,
+                interpreter=pr_ref, media=media_refs)))  # fmt: skip
+            sections["report"] = [dr]
+    return entries, sections, src
 
 
 def build_document_bundle(conn: Connection, document_id: str,
@@ -83,16 +122,29 @@ def build_document_bundle(conn: Connection, document_id: str,
     ).scalar_one_or_none()  # fmt: skip
     facts = [f for f in repo.get_facts_for_document(conn, document_id)
              if f["is_current"] and f["review_state"] != "rejected"]  # fmt: skip
+    data_b64, url = _scan(doc, store)
+    return assemble_document_bundle(document_id, doc, doc_type, enc, pat, model, facts,
+                                    data_b64=data_b64, url=url,
+                                    now=datetime.now(UTC).isoformat())  # fmt: skip
+
+
+def assemble_document_bundle(document_id: str, doc: dict[str, Any], doc_type: str | None,
+                             enc: dict[str, Any], pat: dict[str, Any] | None, model: str | None,
+                             facts: list[dict[str, Any]], *, data_b64: str | None,
+                             url: str | None, now: str) -> dict[str, Any]:  # fmt: skip
+    """The S9 document bundle from already-loaded rows: pure, so the same inputs and ``now`` give
+    the same bundle (the E6-S4 golden bundles are built through here)."""
     governed = [f for f in facts if f["review_state"] in R.GOVERNED]
     held = [f for f in facts if f["review_state"] in R.HELD]
 
-    now = datetime.now(UTC).isoformat()
     p_ref, o_ref, pr_ref = (
         _ref("patient", doc.get("patient_id")),
         _ref("org"),
         _ref("pract", document_id),
     )
-    e_ref, d_ref = _ref("encounter", enc.get("id") or document_id), _ref("docref", document_id)
+    e_ref = _ref("encounter", enc.get("id") or document_id)
+    artifact = R.artifact_for(doc_type)[0]
+    authored = R._iso(enc.get("period_start")) or now  # a medication line without its own time
     entries: list[tuple[str, dict[str, Any], list[str]]] = []  # (url, resource, fact ids)
     entries.append((p_ref, R.patient(pat or {}, p_ref), []))
     entries.append((o_ref, R.organization(R.FACILITY_NAME, o_ref), []))
@@ -103,6 +155,8 @@ def build_document_bundle(conn: Connection, document_id: str,
     advice: list[str] = []
     lab_refs: list[str] = []
     clinical: list[str] = []
+    report_texts: list[str] = []
+    report_ids: list[str] = []
 
     def add(key: str, ref: str, res: dict[str, Any], fact_ids: list[str]) -> None:
         entries.append((ref, res, fact_ids))
@@ -122,26 +176,34 @@ def build_document_bundle(conn: Connection, document_id: str,
         elif t == "vital_sign":
             add("vital_sign", ref, R.measured_observation(f, ref, p_ref, e_ref), [fid])
         elif t == "medication":
-            add("medication", ref, R.medication_request(f, ref, p_ref, e_ref, pr_ref), [fid])
+            add("medication", ref, R.medication_request(f, ref, p_ref, e_ref, pr_ref, authored),
+                [fid])  # fmt: skip
         elif t == "procedure":
             add("procedure", ref, R.procedure(f, ref, p_ref, e_ref), [fid])
         elif t == "allergy":
             add("allergy", ref, R.allergy(f, ref, p_ref), [fid])
-        elif t == "diagnostic_report":
-            add("investigation", ref, R.diagnostic_report(R.codeable(f), ref, p_ref, e_ref, [],
-                                                          f.get("value_text")), [fid])  # fmt: skip
+        elif t == "diagnostic_report":  # the report's own statement: its conclusion
+            report_texts.append(str(f.get("value_text") or f["local_text"]))
+            report_ids.append(fid)
+        elif t == "lab_order":  # a test the prescription advises (owner request 2026-09-28)
+            advice.append(advised_test(f["local_text"], f.get("code_display")))
         elif t in ("advice", "referral", "care_plan"):
             advice.append(f["local_text"] if t != "referral" else f"Referred to {f['local_text']}")
-    if lab_refs:
-        dr = _ref("labreport", document_id)
-        add("investigation", dr, R.diagnostic_report({"text": "Laboratory report"}, dr, p_ref,
-                                                      e_ref, lab_refs, None), [])  # fmt: skip
 
-    data_b64, url = _scan(doc, store)
-    entries.append((d_ref, R.document_reference(doc, d_ref, p_ref, data_b64=data_b64, url=url), []))
-    sections["document"] = [d_ref]
+    parts, part_secs, src = document_parts(
+        artifact, doc, lambda kind: _ref(kind, document_id), p_ref, e_ref, pr_ref,
+        lab_refs=lab_refs, report_texts=report_texts, data_b64=data_b64, url=url)  # fmt: skip
+    for u, r in parts:
+        is_report = u in part_secs.get("report", [])
+        entries.append((u, r, report_ids if is_report else []))
+        if r["resourceType"] in ("DiagnosticReport", "Media"):
+            clinical.append(u)
+    for key, refs in part_secs.items():
+        sections.setdefault(key, []).extend(refs)
+    if part_secs.get("report") and artifact != "DiagnosticReportRecord":
+        sections.setdefault("investigation", []).extend(part_secs["report"])
     prov = _ref("provenance", document_id)
-    entries.append((prov, R.provenance(prov, clinical + [d_ref], d_ref, o_ref,
+    entries.append((prov, R.provenance(prov, clinical + [src], src, o_ref,
                                        f"extractor={model}", now), []))  # fmt: skip
 
     comp_ref = _ref("composition", document_id)
@@ -207,6 +269,16 @@ def _persist(conn: Connection, out: dict[str, Any]) -> None:
          "h": bundle_hash(out["bundle"]), "ig": get_settings().ig_package,
          "vs": out["validation_status"], "s": out["status"]},
     )  # fmt: skip
+
+
+def advised_test(written: str, display: str | None) -> str:
+    """An advised test as the record's narrative carries it: as written, with the standard
+    name it was coded to when that says more ("Test advised: KFT (Renal function panel ...)").
+    ABDM 6.5.0 gives a PrescriptionRecord no place for a ServiceRequest (its one section
+    takes MedicationRequest / Binary only), so the test is text there, like the advice."""
+    same = (display or "").strip().lower() == written.strip().lower()
+    shown = f" ({display})" if display and not same else ""
+    return f"Test advised: {written}{shown}"
 
 
 def project_document(

@@ -7,3 +7,12 @@
 *.json text eol=lf
 *.toml text eol=lf
 .env.* text eol=lf
+# E1-S4 pins: sourced by bash / read by pip on the pod
+infra/runpod/versions.env text eol=lf
+infra/runpod/requirements.lock text eol=lf
+# E1-S9 ingress VM files: read by bash, systemd and Caddy on Linux
+infra/ingress/* text eol=lf
+# E6-S1 FHIR package pin: read on the pod
+infra/fhir/packages.lock text eol=lf
+# E2-S1 vLLM gateway venv pin: read on the pod
+infra/runpod/requirements-vllm.lock text eol=lf

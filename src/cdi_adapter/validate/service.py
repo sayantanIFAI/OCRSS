@@ -18,6 +18,23 @@
 5. One ``review_task`` per document listing every held fact id, ``kind`` inferred
    (``dose_check`` / ``unmapped_terminology`` / ``low_confidence``); the payload carries findings.
 6. ``pipeline_run(stage='validate')`` with counts; ``status='validated'``; audit.
+7. An auto-accepted fact's evidence chain (backlog E4-S7): an ``interpretation_candidate`` and a
+   ``verified_fact`` pointing at its raw observations (``cdi_adapter.evidence``).
+8. The resolution cascade (backlog E4-S8, ``cdi_adapter.resolution``) on every gated fact: its
+   evidence matrix, the level that resolved it or why it escalated, logged as an agent step. It
+   can only hold a fact the gate would auto-accept (a tier-0/1 conflict, or no level validated for
+   the field and cohort), never accept one the gate holds; the level and matrix are stored with
+   the auto-accepted fact's candidate.
+9. The fitted calibrator (backlog E4-S2, ``CDI_CALIBRATOR_VERSION``): when set, the gate
+   decides on the isotonic-calibrated confidence of the fact's doc_type x fact_type (x field) slice
+   instead of the fixed-penalty score, which stays in ``confidence_overall``; the note records
+   both. Unset (the default) nothing changes.
+   With ``CDI_GATE_THRESHOLDS`` too (backlog E4-S3, ``cdi_adapter.training.thresholds``), the
+   derived per-class cut-offs replace the global constants for the classes they cover: a fact
+   auto-accepts only when every field clears its threshold for the fact's evidence state.
+10. Medication continuity across encounters (backlog E5-S1, ``cdi_adapter.longitudinal``): a
+   governed medication reordered or changed at a later encounter supersedes the earlier order in
+   the active list; the earlier order stays in the history.
 
 Only machine states (``pending`` / ``auto_accepted`` / ``in_review``) are ever re-gated: a
 clinician's decision (``clinician_confirmed`` / ``corrected`` / ``rejected``) is never overridden.
@@ -33,10 +50,12 @@ from uuid import UUID
 
 from sqlalchemy import Connection, text
 
-from cdi_adapter import repo
+from cdi_adapter import evidence, fieldgrammar, longitudinal, metrics, repo, summary
 from cdi_adapter.config import Settings, get_settings
 from cdi_adapter.db import session_scope
 from cdi_adapter.logging import get_logger
+from cdi_adapter.resolution import facts as resolution
+from cdi_adapter.training import calibrator, thresholds
 from cdi_adapter.validate import rules
 from cdi_adapter.validate.rules import Finding
 
@@ -135,7 +154,7 @@ def validate_document(document_id: UUID | str, *, actor: str = "system") -> dict
         run_id = repo.start_run(conn, document_id=doc_id, stage="validate", model_name="rules")
     try:
         with session_scope() as conn:
-            counts = _validate(conn, doc_id, s)
+            counts = _validate(conn, doc_id, s, run_id)
             repo.set_document_status(conn, doc_id, "validated")
             repo.finish_run(conn, run_id, metrics=counts)
             repo.write_audit(conn, actor=actor, action="update", entity="source_document",
@@ -150,7 +169,8 @@ def validate_document(document_id: UUID | str, *, actor: str = "system") -> dict
     return counts
 
 
-def _validate(conn: Connection, doc_id: str, s: Settings) -> dict[str, Any]:
+def _validate(conn: Connection, doc_id: str, s: Settings,
+              run_id: UUID | str | None = None) -> dict[str, Any]:  # fmt: skip
     ext = conn.execute(
         text("SELECT payload FROM extraction WHERE document_id = :d "
              "ORDER BY created_at DESC LIMIT 1"), {"d": doc_id}
@@ -171,9 +191,15 @@ def _validate(conn: Connection, doc_id: str, s: Settings) -> dict[str, Any]:
     )  # fmt: skip
 
     facts = repo.get_facts_for_document(conn, doc_id)
+    # E15-S2: the engine's own per-field readings, to judge against the clinical field grammars
+    med_readings = fieldgrammar.readings_by_drug(ext)
+    cutoffs = thresholds.check_config(s.gate_thresholds, s.calibrator_version)  # E4-S3
+    cls = repo.get_latest_classification(conn, doc_id) if s.calibrator_version else None
+    doc_type = cls["doc_type"] if cls else None
     held: list[dict[str, Any]] = []
     audit: list[str] = []
     n_auto = n_conflict = 0
+    confidences: list[tuple[str, float]] = []  # E10-S4: observed once the gate pass is done
     for f in facts:
         if f["review_state"] in HUMAN_STATES:
             continue
@@ -184,10 +210,13 @@ def _validate(conn: Connection, doc_id: str, s: Settings) -> dict[str, Any]:
             conn.execute(text("UPDATE clinical_fact SET value_num = :value_num, "
                               "value_unit_ucum = :value_unit_ucum WHERE id = :id"),
                          {"id": f["id"], **updates})  # fmt: skip
+        provenance = repo.get_provenance(conn, f["id"])
         findings = (range_findings + rules.check_unit_present(f) + rules.check_medication(f)
                     + rules.check_dates(f, enc_date)
-                    + rules.check_evidence(repo.get_provenance(conn, f["id"]))
-                    + rules.check_terminology(f))  # fmt: skip
+                    + rules.check_evidence(provenance)
+                    + rules.check_terminology(f)
+                    + rules.check_field_grammars(f, med_readings.get(
+                        fieldgrammar.normalise(f.get("drug_text")).lower())))  # fmt: skip
 
         # cross-document duplicate / contradiction
         if f.get("code"):
@@ -211,25 +240,77 @@ def _validate(conn: Connection, doc_id: str, s: Settings) -> dict[str, Any]:
         n_block = sum(x.severity == "blocker" for x in findings)
         conf = _calibrate(f.get("confidence_overall") or 0.0, partial, n_warn, n_block,
                           s.gate_partial_penalty)  # fmt: skip
+        # E4-S2: the fitted calibrator when one is named; the fixed caps still bound it
+        score, fitted = calibrator.gate_score(s.calibrator_version, s.database_url, doc_type,
+                                              f["fact_type"], conf)  # fmt: skip
+        if fitted is not None and score != conf:
+            score = min(score, 0.5) if n_block else min(score, 0.9) if n_warn else score
         gate_findings = [x for x in findings if x.severity != "info"]
-        state = gate(f["fact_type"], conf, gate_findings, partial, s)
-        note = {"findings": [x.as_json() for x in findings], "calibrated": conf,
-                "partial": partial}  # fmt: skip
+        state = gate(f["fact_type"], score, gate_findings, partial, s)
+        decision = resolution.resolve_fact(conn, f, provenance)  # E4-S8: stricter only
+        by_class = None
+        if cutoffs is not None:
+            by_rules = partial or any(x.severity in ("blocker", "warn") for x in gate_findings)
+            present_fields = {
+                name
+                for name, _ in calibrator.field_outcomes(
+                    {
+                        "fact_type": f["fact_type"],
+                        "proposed": f,
+                        "corrected": f,
+                        "decision": "confirmed",
+                    }
+                )
+            }
+            by_rules = by_rules or not present_fields <= (fitted or {}).get("fields", {}).keys()
+            t_state, by_class = thresholds.gate_decision(
+                cutoffs, doc_type, f["fact_type"], (fitted or {}).get("fields", {}),
+                thresholds.evidence_state(decision.matrix), by_rules)  # fmt: skip
+            if t_state is not None:
+                state = t_state
+        if state == "auto_accepted" and decision.outcome == "review":
+            held_by = Finding("blocker", "cascade-review", decision.escalation_cause or "")
+            findings.append(held_by)
+            gate_findings.append(held_by)
+            state = "in_review"
+        resolution.log_decision(conn, document_id=doc_id, run_id=run_id, seq=len(confidences),
+                                fact_id=f["id"], decision=decision, confidence=score)  # fmt: skip
+        confidences.append((f["fact_type"], conf))
+        note = {"findings": [x.as_json() for x in findings], "calibrated": score,
+                "partial": partial,
+                "resolution": {"level": decision.resolved_by_level, "outcome": decision.outcome,
+                               "cause": decision.escalation_cause,
+                               "policy": decision.policy}}  # fmt: skip
+        if fitted is not None:
+            note["calibrator"] = fitted
+        if by_class is not None:
+            note["thresholds"] = by_class
         _set_state(conn, f["id"], state, conf, note)
         if state == "in_review":
             held.append({"id": str(f["id"]), "findings": [x.as_json() for x in gate_findings]})
         else:
             n_auto += 1
-            if gate_findings or conf < s.gate_auto_accept_conf:
+            evidence.record_auto_accept(conn, f, provenance, confidence=score,
+                                        policy=evidence.policy_id(s),
+                                        decision=decision)  # fmt: skip
+            if gate_findings or score < s.gate_auto_accept_conf:
                 if audit_sampled(s.audit_sample_rate):
                     audit.append(str(f["id"]))
 
     patient_id = facts[0]["patient_id"] if facts else None
+    longitudinal.reconcile_patient(conn, patient_id)  # E5-S1: medications + problems
+    # E5-S2: and the derived summary, on this connection and in this transaction - so it is
+    # already current when the job projects FHIR in the same window (§8.1). No refresh step.
+    summary.refresh_patient_summary(conn, patient_id)
     if held:
         _task(conn, doc_id, patient_id, _task_kind(held), "normal", held)
     if audit:
         _task(conn, doc_id, patient_id, "audit_sample", "low",
               [{"id": a, "findings": []} for a in audit])  # fmt: skip
+    for fact_type, c in confidences:  # E10-S4 drift input
+        metrics.FACT_CONFIDENCE.labels(metrics.fact_type_label(fact_type)).observe(c)
+    metrics.GATE_DECISIONS.labels("auto_accepted").inc(n_auto)
+    metrics.GATE_DECISIONS.labels("in_review").inc(len(held))
     return {"facts": len(facts), "auto_accepted": n_auto, "in_review": len(held),
             "audit_sampled": len(audit), "conflicts": n_conflict, "partial": partial}  # fmt: skip
 

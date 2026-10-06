@@ -21,6 +21,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from cdi_adapter.catalogue.normalize import DOSAGE_FORMS, LEADING_FORMS
 from cdi_adapter.terminology.parse import duration_days, freq_per_day, is_prn, to_ucum
 
 NUM = re.compile(r"^\s*([-+]?\d+(?:\.\d+)?)\s*([^\d\s].*)?$")
@@ -48,11 +49,10 @@ _VITAL_TEXT = {
     "body_height": "body height", "bmi": "body mass index", "blood_glucose": "blood glucose",
 }  # fmt: skip
 
-_FORMS = {"tab": "tablet", "tablet": "tablet", "tabs": "tablet", "cap": "capsule",
-          "capsule": "capsule", "caps": "capsule", "syp": "syrup", "syrup": "syrup",
-          "inj": "injection", "injection": "injection", "susp": "suspension", "oint": "ointment",
-          "drops": "drops", "drop": "drops", "gel": "gel", "cream": "cream", "pen": "pen",
-          "inhaler": "inhaler", "sachet": "sachet"}  # fmt: skip
+# dosage-form words: the one shared table (catalogue/normalize.py), catalogue form names;
+# "T" / "C" / "Cr" are a form only as the first word of a line ("T Dytor", not "Vitamin C")
+_FORMS = DOSAGE_FORMS
+_LEAD_FORMS = {**DOSAGE_FORMS, **LEADING_FORMS}
 _STRENGTH = re.compile(r"(\d+(?:\.\d+)?)\s*(mg|mcg|µg|g|gm|iu|units?|ml)(?:\s*/\s*ml)?\b", re.I)
 # where the drug name ends and the schedule begins
 _SCHEDULE = re.compile(
@@ -61,6 +61,14 @@ _SCHEDULE = re.compile(
     re.I,
 )
 _DURATION_IN_TEXT = re.compile(r"(?:x|for)\s*\d+\s*\w+", re.I)
+# when to take it, not how it enters the body: a model that writes "after food" / "empty stomach"
+# as the route has put an instruction in the wrong field (2026-09-25 check); it moves to
+# instructions unless the text also names a real route
+_WHEN_TO_TAKE = re.compile(r"\b(food|meals?|breakfast|lunch|dinner|supper|stomach|bed ?time|"
+                           r"night|morning|evening|milk|water)\b", re.I)  # fmt: skip
+_A_ROUTE = re.compile(r"\b(oral|orally|p\.?o\.?|i\.?v\.?|i\.?m\.?|s\.?c\.?|subcut\w*|topical|"
+                      r"local|inhal\w*|nebul\w*|nasal|sublingual|rectal|vaginal|transdermal|"
+                      r"eye|ear)\b", re.I)  # fmt: skip
 _DOSE_UNITS = ("mg", "mcg", "µg", "g", "gm", "iu", "unit", "units")
 
 
@@ -161,12 +169,50 @@ def _items(payload: dict[str, Any], key: str) -> list[Any]:
 # ------------------------------------------------------------------ builders
 
 
+_JOINED = re.compile(r"\s*(?:[,;+/]|\band\b)\s*", re.I)
+
+
+def split_joined(fact_type: str, t: str) -> list[str]:
+    """One written line naming several diagnoses ("Type 2 diabetes mellitus, Hypertension") ->
+    one text per diagnosis, but only when the whole line codes to nothing and EVERY part codes
+    on its own (so "Diabetes mellitus, type 2" or "Fracture, left radius" stay one text). One
+    uncoded Condition for two diseases was what the download carried (2026-09-25)."""
+    from cdi_adapter.terminology.service import bind_text  # the seed lookup only, no I/O
+
+    parts = [p for p in _JOINED.split(t) if p]
+    if len(parts) < 2 or bind_text(fact_type, t) is not None:
+        return [t]
+    return parts if all(bind_text(fact_type, p) for p in parts) else [t]
+
+
 def _coded_facts(payload, key: str, fact_type: str, default: float) -> list[FactDraft]:
     out = []
     for item in _items(payload, key):
         t = _coded_text(item)
-        if t:
-            out.append(FactDraft(fact_type, t, _conf(item, default), _ev(item), value_kind=None))
+        for part in split_joined(fact_type, t) if t and fact_type == "condition" else [t]:
+            if part:
+                out.append(FactDraft(fact_type, part, _conf(item, default), _ev(item),
+                                     value_kind=None))  # fmt: skip
+    return out
+
+
+_ORDER_SPLIT = re.compile(r"\s*(?:[,;+]|\band\b)\s*", re.I)
+
+
+def split_orders(text: str | None) -> list[str]:
+    """One advised test per item: "CBC, LFT, RFT" / "T3 + T4 + TSH" -> each test. A slash is
+    part of a test's name ("Urine R/M", "Urine C/S"), so it never splits."""
+    return [t.strip(" .:-") for t in _ORDER_SPLIT.split(text or "") if t.strip(" .:-")]
+
+
+def _order_facts(payload, default: float) -> list[FactDraft]:
+    """The tests a prescription advises (owner request 2026-09-28): ``lab_order`` facts, as
+    written, one per test, with the evidence of the line they were read from."""
+    out = []
+    for item in _items(payload, "investigations_advised"):
+        for part in split_orders(_coded_text(item)):
+            out.append(FactDraft("lab_order", part, _conf(item, default), _ev(item),
+                                 value_kind=None))  # fmt: skip
     return out
 
 
@@ -253,12 +299,26 @@ def _procedure_facts(payload, key: str, default: float) -> list[FactDraft]:
     return out
 
 
+def reslot_name(item: dict[str, Any]) -> dict[str, Any]:
+    """The 7B sometimes writes only the dosage form as ``drug_name`` and the medicine into
+    ``strength`` ("CAP" + "LOPACA CV 200 MG", owner's cardiology OPD sheet, 2026-09-28): the name
+    is put back together, so the catalogue and the medication agent get a medicine to look up.
+    Nothing is invented: the two written values are joined and the strength parsed from them."""
+    name = str(item.get("drug_name") or "").strip()
+    strength = str(item.get("strength") or "").strip()
+    if name.lower().rstrip(".") in _LEAD_FORMS and re.search(
+        r"[A-Za-z]{3,}", _STRENGTH.sub("", strength)
+    ):
+        return {**item, "drug_name": f"{name} {strength}", "strength": ""}
+    return item
+
+
 def parse_medication(item: dict[str, Any]) -> MedDraft:
     raw_name = str(item.get("drug_name") or "").strip()
     tokens = raw_name.split()
     form = None
-    if tokens and tokens[0].lower().rstrip(".") in _FORMS:
-        form = _FORMS[tokens[0].lower().rstrip(".")]
+    if tokens and tokens[0].lower().rstrip(".") in _LEAD_FORMS:
+        form = _LEAD_FORMS[tokens[0].lower().rstrip(".")]
         tokens = tokens[1:]
     name = _SCHEDULE.split(" " + " ".join(tokens), maxsplit=1)[0].strip()
     # a form word later in the name ("... PEN") describes the device, not the drug
@@ -285,6 +345,10 @@ def parse_medication(item: dict[str, Any]) -> MedDraft:
     freq_text = item.get("frequency") or None
     fpd = freq_per_day(freq_text) if freq_text else freq_per_day(text_all)
     route = item.get("route")
+    instructions = item.get("instructions") or None
+    if isinstance(route, str) and _WHEN_TO_TAKE.search(route) and not _A_ROUTE.search(route):
+        instructions = "; ".join(x for x in (instructions, route.strip()) if x)
+        route = None
     if not route and (form in ("injection", "pen") or re.search(r"\b(pen|insulin)\b", raw_name,
                                                                 re.I)):  # fmt: skip
         route = (
@@ -307,7 +371,7 @@ def parse_medication(item: dict[str, Any]) -> MedDraft:
             duration_days(dm.group(0)) if (dm := _DURATION_IN_TEXT.search(text_all)) else None
         ),
         prn=is_prn(text_all),
-        instructions=item.get("instructions"),
+        instructions=instructions,
     )  # fmt: skip
 
 
@@ -315,6 +379,7 @@ def _med_facts(payload, default: float) -> list[FactDraft]:
     out = []
     for item in _items(payload, "medications"):
         if isinstance(item, dict) and str(item.get("drug_name") or "").strip():
+            item = reslot_name(item)
             med = parse_medication(item)
             out.append(FactDraft("medication", str(item["drug_name"]).strip(),
                                  _conf(item, default), _ev(item), medication=med))  # fmt: skip
@@ -327,7 +392,7 @@ def _med_facts(payload, default: float) -> list[FactDraft]:
 def _facts_prescription(p, d):
     return (_coded_facts(p, "diagnoses", "condition", d) + _med_facts(p, d)
             + _vital_facts(p, d) + _allergy_facts(p, d)
-            + _coded_facts(p, "advice", "advice", d))  # fmt: skip
+            + _coded_facts(p, "advice", "advice", d) + _order_facts(p, d))  # fmt: skip
 
 
 def _facts_lab(p, d):
@@ -342,7 +407,8 @@ def _facts_opd_note(p, d):
     out = (_coded_facts(p, "chief_complaints", "symptom", d)
            + _coded_facts(p, "symptoms", "symptom", d) + _coded_facts(p, "findings", "finding", d)
            + _coded_facts(p, "diagnoses", "condition", d) + _vital_facts(p, d) + _med_facts(p, d)
-           + _allergy_facts(p, d) + _coded_facts(p, "advice", "advice", d))  # fmt: skip
+           + _allergy_facts(p, d) + _coded_facts(p, "advice", "advice", d)
+           + _order_facts(p, d))  # fmt: skip
     if isinstance(p.get("referral_to"), str) and p["referral_to"].strip():
         out.append(FactDraft("referral", p["referral_to"].strip(), d))
     return out

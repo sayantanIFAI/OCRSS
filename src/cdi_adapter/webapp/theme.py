@@ -35,13 +35,22 @@ input,select,textarea{font:inherit;padding:6px 8px;border:1px solid var(--border
 
 
 def header(active: str = "") -> str:
-    links = [("/", "Generate EMR"), ("/review", "Review"), ("/reviewer", "Reviewer"),
-             ("/admin", "Admin")]  # fmt: skip
+    links = [("/", "Generate EMR"), ("/review", "Review"), ("/conflicts", "Merge conflicts"),
+             ("/reviewer", "Reviewer"), ("/admin", "Admin")]  # fmt: skip
     nav = "".join(
         f'<a href="{h}"{" aria-current=page" if h == active else ""}>{escape(t)}</a>'
         for h, t in links
     )
-    return f'<header class="top">{LOGO_SVG}<b>CareFlow Polyclinic</b><nav>{nav}</nav></header>'
+    # the Pipeline Monitor is its own microsite (webapp/monitor_page.py): it opens in a new tab
+    nav += '<a href="/monitor" target=_blank rel=noopener>Pipeline monitor ↗</a>'
+    signout = (
+        '<form method=post action="/logout" style="margin-left:auto">'
+        "<button type=submit>Sign out</button></form>"
+    )  # E11-S1
+    return (
+        f'<header class="top">{LOGO_SVG}<b>CareFlow Polyclinic</b><nav>{nav}</nav>'
+        f"{signout}</header>"
+    )
 
 
 def page(title: str, body: str, *, active: str = "", script: str = "") -> str:

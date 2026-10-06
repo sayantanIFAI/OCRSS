@@ -7,6 +7,7 @@
 # $WS/logs/golden_alerts.log (the alert channel until E10 observability exists); the measured
 # counts are always in $WS/logs/golden_last.json.
 set -euo pipefail
+set -E
 WS=${WS:-/workspace}
 REPO=${REPO:-$WS/cdi}
 set -a; [ -f "$REPO/.env" ] && . "$REPO/.env"; set +a
@@ -14,12 +15,24 @@ export CDI_SECRETS_DIR=${CDI_SECRETS_DIR:-/run/cdi-secrets}
 export CDI_S3_BUCKET=cdi-golden
 PY="$REPO/.venv/bin/python"
 
+mkdir -p "$WS/logs"
+# Prevent overlapping cron/manual resets of the dedicated database.
+exec 9>"$WS/logs/golden.lock"
+flock -n 9 || { echo "golden: another run is active"; exit 1; }
+alert_failure() {
+  local status=$?
+  echo "$(date -Is) GOLDEN ERROR exit=$status; see golden_nightly.log" >>"$WS/logs/golden_alerts.log"
+  exit "$status"
+}
+trap alert_failure ERR
+
 # the model gateway must be up with the real backend, else the run would be meaningless
 HEALTH=$(curl -fsS "http://127.0.0.1:${CDI_MLSERVE_PORT:-8077}/healthz" || true)
-if ! grep -q '"loaded": *true' <<<"$HEALTH" || ! grep -q '"backend": *"hf"' <<<"$HEALTH"; then
-  echo "golden: mlserve is not the loaded hf backend; skipped: $HEALTH"
-  exit 2
-fi
+BACKEND=$("$PY" -c 'import json,sys; h=json.load(sys.stdin); assert h.get("loaded"); print(h["backend"])' <<<"$HEALTH")
+case "$BACKEND" in
+  hf|vllm) export CDI_MLSERVE_BACKEND="$BACKEND" ;;
+  *) echo "golden: loaded real backend required"; false ;;
+esac
 
 # the cdi role cannot CREATE DATABASE; the superuser creates it once, owned by cdi
 su postgres -c "psql -h /tmp -tAc \"SELECT 1 FROM pg_database WHERE datname='cdi_golden'\"" \

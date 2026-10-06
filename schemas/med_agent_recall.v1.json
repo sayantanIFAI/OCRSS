@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cdi:med_agent_recall.v1",
+  "title": "Medication agent, step 0: the brands and generics each medicine line most likely is (model knowledge + diagnoses)",
+  "type": "object",
+  "properties": {
+    "lines": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "line": {
+            "type": "integer"
+          },
+          "brands": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "generics": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "line",
+          "brands",
+          "generics",
+          "reason"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "confidence": {
+      "$ref": "cdi:common.defs#/$defs/confidence"
+    }
+  },
+  "required": [
+    "lines",
+    "confidence"
+  ],
+  "additionalProperties": false
+}

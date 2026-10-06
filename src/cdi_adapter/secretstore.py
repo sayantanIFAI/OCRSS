@@ -3,8 +3,8 @@
 Credentials live outside the repository and outside ``.env``, one file per secret in a directory
 readable by the service owner only (dir 0700, files 0600), and are loaded by ``get_settings()``
 through pydantic-settings' ``secrets_dir``. A file is named after its setting's environment
-variable in lower case (``cdi_database_url``, ...). Precedence stays pydantic-settings' own:
-init args > environment > ``.env`` > this store, so tests and local dev keep working unchanged.
+variable in lower case (``cdi_database_url``, ...). A configured store is authoritative for
+credentials in ``get_settings()``; other settings keep normal environment/``.env`` precedence.
 
 The store is located by ``CDI_SECRETS_DIR``, else ``~/.cdi/secrets`` if that directory exists.
 
@@ -35,7 +35,10 @@ DEFAULT_DIR = Path.home() / ".cdi" / "secrets"
 
 # the Settings fields that are credentials (ARCHITECTURE §9)
 FIELDS = ("database_url", "redis_url", "s3_access_key", "s3_secret_key")
-NAMES = tuple(f"cdi_{f}" for f in FIELDS)
+# service credentials that are not Settings fields: Grafana admin (E10-S2), the Postgres
+# replication role the standby connects as (E10-S6)
+SERVICE_NAMES = ("cdi_grafana_admin_password", "cdi_replication_password")
+NAMES = tuple(f"cdi_{f}" for f in FIELDS) + SERVICE_NAMES
 
 # the well-known dev defaults in config.py / .env.example: never acceptable in a store
 DEV_PASSWORDS = frozenset({"cdi", "minioadmin", "postgres", "password", "changeme"})
@@ -57,11 +60,16 @@ def insecure_modes(store: Path) -> list[str]:
     if not POSIX or not store.exists():
         return []
     problems = []
+    if store.is_symlink():
+        problems.append("store directory must not be a symlink")
     if stat.S_IMODE(store.stat().st_mode) & 0o077:
         problems.append(
             f"{store}: directory mode {oct(stat.S_IMODE(store.stat().st_mode))}, want 0700"
         )
     for f in sorted(store.iterdir()):
+        if f.is_symlink():
+            problems.append(f"{f.name}: secret must not be a symlink")
+            continue
         mode = stat.S_IMODE(f.stat().st_mode)
         if mode & 0o077:
             problems.append(f"{f.name}: mode {oct(mode)}, want 0600")
@@ -80,11 +88,19 @@ def read(store: Path, name: str) -> str | None:
 
 
 def write(store: Path, name: str, value: str) -> None:
+    if store.is_symlink():
+        raise PermissionError("store directory must not be a symlink")
     store.mkdir(mode=0o700, parents=True, exist_ok=True)
     if POSIX:
         os.chmod(store, 0o700)
+    assert_safe(store)
     path = store / name
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    if path.is_symlink():
+        raise PermissionError(f"secret must not be a symlink: {name}")
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    if POSIX and stat.S_IMODE(os.fstat(fd).st_mode) & 0o077:
+        os.close(fd)
+        raise PermissionError("filesystem does not enforce private secret permissions")
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         fh.write(value + "\n")
     if POSIX:
@@ -103,7 +119,7 @@ def generate(name: str) -> str:
         return f"redis://:{_password()}@127.0.0.1:6379/0"
     if name == "cdi_s3_access_key":
         return "cdi-" + secrets.token_hex(8)
-    if name == "cdi_s3_secret_key":
+    if name in ("cdi_s3_secret_key", "cdi_grafana_admin_password", "cdi_replication_password"):
         return _password()
     raise KeyError(name)
 
@@ -149,12 +165,12 @@ def _secret_strength(name: str, value: str) -> str | None:
     return None
 
 
-def check(store: Path) -> list[str]:
+def check(store: Path, *, names: Sequence[str] = NAMES) -> list[str]:
     """Every problem with a store; an empty list means it is fit for a shared host."""
     if not store.is_dir():
         return [f"{store}: no such store (run `init`)"]
     problems = insecure_modes(store)
-    for name in NAMES:
+    for name in names:
         value = read(store, name)
         if value is None:
             problems.append(f"{name}: missing")

@@ -1,0 +1,40 @@
+{
+  "version": "cascade.v1",
+  "title": "Evidence hierarchy + cheapest-first resolution cascade (backlog E4-S8, ARCHITECTURE §15.6)",
+  "tiers": [
+    {"tier": 0, "name": "Pixels (grounding)", "may": ["support", "contradict"],
+     "note": "Can veto anything: a tier-0 contradiction removes the candidate."},
+    {"tier": 1, "name": "Independent recognizer readings + visual exemplar similarity", "may": ["support", "contradict"],
+     "note": "Readings are independent: no engine sees another's answer."},
+    {"tier": 2, "name": "Lexical mapping (verified > observed doctor > generated alias) + terminology validity", "may": ["support"]},
+    {"tier": 3, "name": "Priors (doctor frequency, co-order / sequence, specialty, layout)", "may": ["rerank"],
+     "note": "Only re-rank candidates already supported by tiers 0-2; never create one, never override a tier-0/1 contradiction."}
+  ],
+  "negative_constraints": {"may": ["eliminate"], "note": "Only eliminate a candidate, with the rule id; never add one."},
+  "rules": {
+    "conflict_forces_review_tiers": [0, 1],
+    "priors_rerank_only": true,
+    "majority_vote_sufficient": false
+  },
+  "levels": [
+    {"id": "L0", "name": "Reading as recognized (the field needs no concept)", "built": true,
+     "implemented_by": "S3 OCR + S4 extraction: the value is the reading itself"},
+    {"id": "L1", "name": "Exact alias", "built": true,
+     "implemented_by": "S5 terminology: the text as written is a concept's display or verified alias"},
+    {"id": "L2", "name": "Normalized", "built": true,
+     "implemented_by": "S5 terminology after normalization (case, punctuation, HbA1c variants, dosage-form words)"},
+    {"id": "L3", "name": "Fuzzy", "built": true,
+     "implemented_by": "S5 terminology fuzzy match (difflib, cutoff 0.86)"},
+    {"id": "L4", "name": "Doctor exemplar", "built": false, "backlog": "E15-S7"},
+    {"id": "L5", "name": "Global exemplar", "built": false, "backlog": "E15-S7"},
+    {"id": "L6", "name": "Embedding + reranker", "built": false, "backlog": "E3-S2, E3-S3"},
+    {"id": "L7", "name": "Qwen contextual adjudication (both candidates + crop, only after independent reads)", "built": false, "backlog": "E2-S11"},
+    {"id": "L8", "name": "Human review", "built": true, "implemented_by": "S8 /review and /reviewer"}
+  ],
+  "validated_for": [
+    {"levels": ["L0", "L1", "L2", "L3"], "cohort": "printed", "fields": ["*"], "basis": "assumed"}
+  ],
+  "validation_basis": {
+    "assumed": "Not measured: the S6 gate's fixed thresholds as they stand. Replaced per field x cohort by held-out adjudicated data (E4-S2 calibration, E4-S3 thresholds, E4-S10 precision-at-coverage)."
+  }
+}

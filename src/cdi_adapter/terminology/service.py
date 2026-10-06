@@ -20,7 +20,9 @@ from uuid import UUID
 
 from sqlalchemy import text
 
+from cdi_adapter import metrics as prom
 from cdi_adapter import repo
+from cdi_adapter.catalogue.normalize import DOSAGE_FORMS, LEADING_FORMS
 from cdi_adapter.config import get_settings
 from cdi_adapter.db import session_scope
 from cdi_adapter.logging import get_logger
@@ -32,9 +34,8 @@ log = get_logger(__name__)
 FUZZY_CUTOFF = 0.86
 CONF_BOUND = 0.9
 CONF_LOCAL = 0.4
-_FORM_WORDS = {"tab", "tablet", "tabs", "cap", "capsule", "caps", "syp", "syrup", "inj",
-               "injection", "susp", "suspension", "oint", "ointment", "drops", "drop", "gel",
-               "cream", "pen", "inhaler", "sachet", "xl", "sr", "er", "cr", "od", "mr"}  # fmt: skip
+# every dosage-form word or abbreviation (the one shared table) and the release forms
+_FORM_WORDS = set(DOSAGE_FORMS) | {"xl", "sr", "er", "cr", "od", "mr"}
 _FACT_UPDATE_COLS = (
     "code_system",
     "code",
@@ -51,6 +52,19 @@ def normalize(s: str | None) -> str:
     t = _HBA1C.sub("hba1c", t)
     t = re.sub(r"[^a-z0-9%/ ]+", " ", t)
     return re.sub(r"\s+", " ", t).strip()
+
+
+_ORDER_PREFIX = re.compile(r"^(?:s|sr|serum|blood|b|test|tests|for|do|get)\s+")
+_ORDER_SUFFIX = re.compile(r"\s+(?:test|tests|level|levels|report)$")
+
+
+def order_key(key: str) -> str:
+    """An advised test as ordered, without the words around it: "s creatinine" -> "creatinine",
+    "vitamin d level" -> "vitamin d" (a normalised key, see ``normalize``)."""
+    prev = None
+    while prev != key:
+        prev, key = key, _ORDER_SUFFIX.sub("", _ORDER_PREFIX.sub("", key)).strip()
+    return key
 
 
 @dataclass(frozen=True)
@@ -82,8 +96,15 @@ def bind_text(fact_type: str, local_text: str | None) -> Binding | None:
         return Binding(exact[key], "exact")
     if key in alias:
         return Binding(alias[key], "alias")
+    if fact_type == "lab_order":  # "S. Creatinine", "Sr TSH", "Lipid profile test"
+        key = order_key(key)
+        if key in exact or key in alias:
+            return Binding(exact.get(key) or alias[key], "alias")
     if fact_type == "medication":
-        tokens = [t for t in key.split() if t not in _FORM_WORDS and not t.isdigit()
+        words = key.split()
+        if words and words[0] in LEADING_FORMS:  # "t dolo 650": T is the tablet, not the drug
+            words = words[1:]
+        tokens = [t for t in words if t not in _FORM_WORDS and not t.isdigit()
                   and not re.fullmatch(r"\d+(mg|mcg|ml|g|iu)?", t)]  # fmt: skip
         for tok in tokens:
             if tok in exact or tok in alias:
@@ -155,6 +176,14 @@ def bind_document(document_id: UUID | str, *, actor: str = "system") -> dict[str
                 _update_fact(conn, f["id"], u)
                 bound += u["code_status"] == "bound"
             metrics = {"facts": len(facts), "bound": bound, "local_only": len(facts) - bound}
+            # the medicine catalogue layer (Tata 1mg): identify each medication against the
+            # catalogue, beside its coding; the extracted text is never changed
+            from cdi_adapter.catalogue.service import match_document_medications
+
+            metrics.update(match_document_medications(conn, document_id))
+            # E10-S4: the unmapped-code rate trend (E3-S3 minting keeps feeding the same counter)
+            prom.TERMINOLOGY.labels("bound").inc(bound)
+            prom.TERMINOLOGY.labels("local_only").inc(len(facts) - bound)
             repo.set_document_status(conn, document_id, "normalized")
             repo.finish_run(conn, run_id, metrics=metrics)
             detail = {"stage": "terminology", **metrics}

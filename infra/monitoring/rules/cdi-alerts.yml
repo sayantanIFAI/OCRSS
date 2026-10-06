@@ -1,0 +1,189 @@
+# CDI-Adapter alert rules (backlog E10-S2). On-call response for each: docs/alerts.md.
+# Tested with synthetic series: `promtool test rules cdi-alerts.test.yml` (tests/test_monitoring_unit.py).
+# Annotations are static text (no templated values) so the tests can match them exactly.
+groups:
+  - name: cdi
+    rules:
+      # ADR-0002: last upload -> governed JSON/FHIR or an explicit hold within 5 minutes. Fires while a
+      # job is still running past 300 s, or when any job finished past 300 s in the last 10 minutes.
+      - alert: CdiSlaWindowBreach
+        expr: |
+          max(cdi_job_oldest_running_seconds) > 300
+          or
+          (
+            sum(increase(cdi_job_seconds_count[10m]))
+            - sum(increase(cdi_job_seconds_bucket{le="300.0"}[10m]))
+          ) > 0.5
+        labels:
+          severity: page
+        annotations:
+          summary: A job passed the 5-minute SLA window (ADR-0002).
+          description: A job is still running after 300 s, or one finished after 300 s in the last 10 minutes.
+          runbook_url: docs/alerts.md#cdislawindowbreach
+
+      # The GPU ran out of memory: a model load fell back 7B -> 3B, a batch was split, or a call failed.
+      - alert: CdiGpuOom
+        expr: sum(increase(cdi_vlm_oom_total[15m])) > 0
+        labels:
+          severity: page
+        annotations:
+          summary: The model gateway ran out of GPU memory.
+          description: CUDA out-of-memory in the last 15 minutes (model load, a batch, or a single call).
+          runbook_url: docs/alerts.md#cdigpuoom
+
+      # More documents waiting for a GPU slot than can drain inside the SLA. At ~60 s per page
+      # extraction (the E10-S1 Colab run: 57.8 s) and up to 4 slots, 30 waiting is ~7.5 minutes of
+      # work: the SLA is already lost for the last of them. Sustained 5 minutes, so a short burst
+      # that drains by itself does not page.
+      - alert: CdiQueueBacklog
+        expr: max(cdi_extract_waiting) > 30
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: The extraction queue is longer than the SLA can absorb.
+          description: More than 30 documents have waited for a GPU extraction slot for 5 minutes.
+          runbook_url: docs/alerts.md#cdiqueuebacklog
+
+      # _partial (schema-invalid model output, held for review) rising above its own rolling 7-day
+      # baseline: a model, prompt or schema regression. 1.5x the baseline plus 5 points, so a near-zero
+      # baseline does not alarm on one bad document; at least 10 extractions in the hour.
+      - alert: CdiPartialRateAboveBaseline
+        expr: |
+          (
+            sum(rate(cdi_extractions_total{outcome="partial"}[1h]))
+            / sum(rate(cdi_extractions_total[1h]))
+          )
+          > (
+            1.5 * (
+              sum(rate(cdi_extractions_total{outcome="partial"}[7d]))
+              / sum(rate(cdi_extractions_total[7d]))
+            ) + 0.05
+          )
+          and sum(increase(cdi_extractions_total[1h])) >= 10
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: The _partial extraction rate is above its 7-day baseline.
+          description: The share of schema-invalid (_partial) extractions in the last hour is over 1.5x its 7-day rate plus 5 points.
+          runbook_url: docs/alerts.md#cdipartialrateabovebaseline
+
+      # E10-S4: the shape of the calibrated confidence distribution moved within a day. Statistic:
+      # the Kolmogorov-Smirnov distance between the last 6 hours and the 7 days before them (offset,
+      # so the baseline does not contain the window it is compared with), computed on the histogram
+      # buckets, which include the gate's own lines (0.85 / 0.95 / 0.985). Two-sample critical value
+      # at 1% for n = 50 is ~0.23; 0.25 keeps the alert to shifts that are both real and material.
+      - alert: CdiConfidenceDrift
+        expr: |
+          max(
+            abs(
+              sum by (le) (increase(cdi_fact_confidence_bucket[6h]))
+              / scalar(sum(increase(cdi_fact_confidence_count[6h])))
+              - sum by (le) (increase(cdi_fact_confidence_bucket[7d] offset 6h))
+              / scalar(sum(increase(cdi_fact_confidence_count[7d] offset 6h)))
+            )
+          ) > 0.25
+          and sum(increase(cdi_fact_confidence_count[6h])) >= 50
+        for: 30m
+        labels:
+          severity: ticket
+        annotations:
+          summary: The fact confidence distribution shifted away from its 7-day baseline.
+          description: The Kolmogorov-Smirnov distance between the last 6 hours and the previous 7 days is over 0.25 (at least 50 facts).
+          runbook_url: docs/alerts.md#cdiconfidencedrift
+
+      # E10-S6: the standby is behind. Its lag is the data a failover would lose right now; the
+      # block promises RPO < 1 minute, so this pages at half of it.
+      - alert: CdiPgReplicationLag
+        expr: max(cdi_pg_replication_lag_seconds) > 30
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: The Postgres standby is more than 30 seconds behind the primary.
+          description: A failover now would lose more than 30 seconds of commits (the RPO target is under 1 minute).
+          runbook_url: docs/alerts.md#cdipgreplicationlag
+
+      # E10-S6: a replication slot has no standby on it: there is nothing to fail over to, and the
+      # primary keeps every WAL segment for the missing standby until its disk fills.
+      - alert: CdiPgStandbyDisconnected
+        expr: max(cdi_pg_replication_slots_inactive) > 0
+        for: 5m
+        labels:
+          severity: ticket
+        annotations:
+          summary: The Postgres standby is not connected to the primary.
+          description: A replication slot has had no standby streaming from it for 5 minutes; there is no failover target.
+          runbook_url: docs/alerts.md#cdipgstandbydisconnected
+
+      # E10-S6: a MinIO drive is offline, or a MinIO host of a multi-host set does not answer. The
+      # data is safe (erasure coding), but one more loss stops writes: replace or bring it back.
+      - alert: CdiMinioDegraded
+        expr: max(cdi_minio_drives_offline) > 0 or min(cdi_minio_nodes_online) < max(cdi_minio_nodes)
+        for: 2m
+        labels:
+          severity: ticket
+        annotations:
+          summary: MinIO is running with a drive or a host missing.
+          description: A MinIO drive is offline or a MinIO host does not answer; one more loss stops writes to the scan store.
+          runbook_url: docs/alerts.md#cdiminiodegraded
+
+      # E10-S11: no good backup for 45 minutes (three missed 15-minute runs). The RPO target of a
+      # restore (20 minutes) is already broken.
+      - alert: CdiBackupStale
+        expr: time() - max(cdi_backup_last_success_timestamp_seconds) > 2700
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: No good backup for 45 minutes.
+          description: The newest good pg_dump + object backup is more than 45 minutes old; a restore now would lose more than the RPO target.
+          runbook_url: docs/alerts.md#cdibackupstale
+
+      # E10-S11: the last restore drill failed: the backups cannot be trusted to restore.
+      - alert: CdiRestoreDrillFailed
+        expr: max(cdi_dr_restore_last_ok) == 0
+        labels:
+          severity: page
+        annotations:
+          summary: The last restore drill failed.
+          description: Restoring the backups into a clean environment failed or missed its RPO/RTO target; the backups may not be restorable.
+          runbook_url: docs/alerts.md#cdirestoredrillfailed
+
+      # E10-S11: the weekly drill has not run for 8 days (cron, or the host was down on Sunday).
+      - alert: CdiRestoreDrillOverdue
+        expr: time() - max(cdi_dr_restore_last_timestamp_seconds) > 691200
+        for: 1h
+        labels:
+          severity: ticket
+        annotations:
+          summary: No restore drill for 8 days.
+          description: The weekly restore drill has not finished for more than 8 days; the backups are untested.
+          runbook_url: docs/alerts.md#cdirestoredrilloverdue
+
+      # E10-S9: a web app instance's /metrics has not answered for 2 minutes. The balancer already
+      # sends its traffic to the other instances (/readyz), so staff see nothing yet, but one more
+      # loss leaves no spare. Restart it: bash infra/runpod/start_apptier.sh.
+      - alert: CdiWebappInstanceDown
+        expr: up{job="cdi-webapp"} == 0
+        for: 2m
+        labels:
+          severity: ticket
+        annotations:
+          summary: A web app instance is down.
+          description: One web app instance has not answered for 2 minutes; the balancer serves from the others, with less spare capacity.
+          runbook_url: docs/alerts.md#cdiwebappinstancedown
+
+      # E10-S9: accepted jobs that no runner holds: their runner died and no other runner has
+      # taken them over (every job worker down, or the database refusing the takeover). The
+      # uploads are safe in PostgreSQL + MinIO, but nothing is processing them.
+      - alert: CdiJobsOrphaned
+        expr: max(cdi_jobs_orphaned) > 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: Accepted jobs are not being processed.
+          description: Jobs whose runner died have not been taken over for 2 minutes; no job worker is alive to resume them.
+          runbook_url: docs/alerts.md#cdijobsorphaned

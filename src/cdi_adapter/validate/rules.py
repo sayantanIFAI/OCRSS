@@ -13,6 +13,8 @@ Each rule returns findings ``(severity in {blocker, warn, info}, code, message)`
 |                      | of the encounter                                                       |
 | check_evidence       | a fact_provenance row with >= 1 OCR block id **or** extracted text     |
 | check_terminology    | condition/medication/allergy/procedure is ``bound`` (else warn)        |
+| check_field_grammars | a field reading is inside its clinical grammar (E15-S2): strength,     |
+|                      | dose (``1-0-1``, never ``1-7-1``), duration, frequency                 |
 
 The windows are *absolute plausibility* limits (values outside them are almost certainly
 misreads), not clinical reference ranges.
@@ -24,6 +26,8 @@ import re
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
+
+from cdi_adapter import fieldgrammar
 
 
 @dataclass(frozen=True)
@@ -227,3 +231,27 @@ def check_terminology(fact: dict[str, Any]) -> list[Finding]:
     if fact["fact_type"] in _CODED_TYPES and fact.get("code_status") != "bound":
         return [Finding("warn", "unmapped-terminology", "no standard code bound")]
     return []
+
+
+def check_field_grammars(fact: dict[str, Any],
+                         readings: dict[str, str] | None = None) -> list[Finding]:  # fmt: skip
+    """E15-S2: a reading an unconstrained engine produced outside its field's grammar.
+
+    The grammar-locked decoder (``mlserve.grammar``) cannot emit one; RapidOCR, TrOCR and an
+    unconstrained VLM can, so the same grammars judge what arrives. ``readings`` are the engine's
+    own strings for this medication (``fieldgrammar.readings_by_drug``); the frequency is judged
+    from the stored reading as well, since that is kept verbatim. A field that is absent is not
+    judged here - that is ``check_medication``'s ``med-no-dose`` / ``med-no-frequency``.
+    """
+    if fact["fact_type"] != "medication":
+        return []
+    seen = dict(readings or {})
+    if fact.get("frequency_code"):
+        seen.setdefault("frequency", str(fact["frequency_code"]))
+    out: list[Finding] = []
+    for domain in fieldgrammar.DOMAINS:
+        why = fieldgrammar.out_of_grammar(domain, seen.get(domain))
+        if why:
+            out.append(Finding(fieldgrammar.severity(domain, seen.get(domain)),
+                               "field-out-of-grammar", why))  # fmt: skip
+    return out

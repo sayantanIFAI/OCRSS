@@ -126,12 +126,13 @@ def test_settings_read_credentials_from_the_store(store, clean_env, monkeypatch)
     assert s.redis_url == ss.read(store, "cdi_redis_url")
 
 
-def test_environment_still_overrides_the_store(store, clean_env, monkeypatch) -> None:
+def test_store_credentials_override_environment(store, clean_env, monkeypatch) -> None:
     monkeypatch.setenv(ss.ENV_VAR, str(store))
     monkeypatch.setattr(ss, "insecure_modes", lambda _d: [])
     monkeypatch.setenv("CDI_S3_BUCKET", "b")
     monkeypatch.setenv("CDI_S3_SECRET_KEY", "from-env-for-a-test")
-    assert get_settings().s3_secret_key == "from-env-for-a-test"
+    assert get_settings().s3_secret_key == ss.read(store, "cdi_s3_secret_key")
+    assert get_settings().s3_bucket == "b"
 
 
 def test_misuse_open_store_refuses_to_load(store, clean_env, monkeypatch) -> None:
@@ -283,3 +284,54 @@ def test_pod_config_carries_no_credentials() -> None:
     }
     assert keys.isdisjoint({f"CDI_{f}".upper() for f in ss.FIELDS})
     assert "CDI_SECRETS_DIR" in keys
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permissions")
+def test_secret_write_refuses_filesystem_ignoring_chmod(tmp_path, monkeypatch) -> None:
+    unsafe = tmp_path / "unsafe"
+    unsafe.mkdir(mode=0o755)
+    unsafe.chmod(0o755)
+    monkeypatch.setattr(ss.os, "chmod", lambda *args: None)
+    with pytest.raises(PermissionError):
+        ss.write(unsafe, "cdi_s3_secret_key", "must-never-be-written")
+    assert not (unsafe / "cdi_s3_secret_key").exists()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX symlinks")
+def test_secret_write_cannot_follow_a_symlink(store, tmp_path) -> None:
+    outside = tmp_path / "outside"
+    outside.write_text("unchanged")
+    secret = store / "cdi_s3_secret_key"
+    secret.unlink()
+    secret.symlink_to(outside)
+    with pytest.raises(PermissionError):
+        ss.write(store, secret.name, "must-never-be-written")
+    assert outside.read_text() == "unchanged"
+
+
+def test_guest_exception_is_scoped_to_test_or_loopback_examples() -> None:
+    example = "amqp://guest:" + "guest@127.0.0.1:5672//"
+    assert scan.scan_text("docs/example.md", example) == []
+    assert scan.scan_text("deploy.sh", example)
+    assert scan.scan_text("docs/example.md", example.replace("127.0.0.1", "remote.example"))
+
+
+def test_scanner_never_prints_even_short_passwords() -> None:
+    assert scan.mask("abc") == "[redacted, 3 chars]"
+
+
+def test_configured_store_never_falls_back_to_dev_credentials(store, clean_env, monkeypatch):
+    monkeypatch.setenv(ss.ENV_VAR, str(store))
+    (store / "cdi_s3_secret_key").unlink()
+    with pytest.raises(ValueError, match="cdi_s3_secret_key: missing"):
+        get_settings()
+
+
+def test_scan_checks_private_keys_with_nonstandard_extensions(tmp_path):
+    key = "-----BEGIN OPENSSH " + "PRIVATE KEY-----"
+    root = _tree(tmp_path, {"identity.pem": key, "private.key": key, "unknown.custom": key})
+    assert {f.where for f in scan.scan_tree(root)} == {
+        "identity.pem",
+        "private.key",
+        "unknown.custom",
+    }

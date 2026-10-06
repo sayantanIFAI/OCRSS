@@ -1,0 +1,594 @@
+{
+  "entry": [
+    {
+      "fullUrl": "urn:uuid:8b86c3b5-8b33-521e-9d5a-69c56aa97d97",
+      "resource": {
+        "author": [
+          {
+            "reference": "urn:uuid:879e8ef4-7177-523f-8424-2bb515888f11"
+          }
+        ],
+        "custodian": {
+          "reference": "urn:uuid:66c0d3a9-c723-5c30-9792-4fe5880edc7e"
+        },
+        "date": "2026-08-12T10:00:00+00:00",
+        "encounter": {
+          "reference": "urn:uuid:ed2b6bf7-6393-559d-901c-b4d662b9bf39"
+        },
+        "id": "8b86c3b5-8b33-521e-9d5a-69c56aa97d97",
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/DiagnosticReportRecord"
+          ]
+        },
+        "resourceType": "Composition",
+        "section": [
+          {
+            "code": {
+              "coding": [
+                {
+                  "code": "721981007",
+                  "display": "Diagnostic studies report",
+                  "system": "http://snomed.info/sct"
+                }
+              ]
+            },
+            "entry": [
+              {
+                "reference": "urn:uuid:b4caef18-ec85-5223-97af-c591315b57ae",
+                "type": "DiagnosticReport"
+              },
+              {
+                "reference": "urn:uuid:3e2c3bed-efb3-52d6-bd6c-e515ca486380",
+                "type": "DocumentReference"
+              }
+            ],
+            "title": "Diagnostic studies report"
+          }
+        ],
+        "status": "final",
+        "subject": {
+          "reference": "urn:uuid:3b373192-2a50-5879-b4f4-d35451854e76"
+        },
+        "title": "Diagnostic studies report",
+        "type": {
+          "coding": [
+            {
+              "code": "721981007",
+              "display": "Diagnostic studies report",
+              "system": "http://snomed.info/sct"
+            }
+          ],
+          "text": "Diagnostic studies report"
+        }
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:3b373192-2a50-5879-b4f4-d35451854e76",
+      "resource": {
+        "birthDate": "1978-03-14",
+        "gender": "female",
+        "id": "3b373192-2a50-5879-b4f4-d35451854e76",
+        "identifier": [
+          {
+            "system": "https://careflow.clinic/mpi",
+            "type": {
+              "coding": [
+                {
+                  "code": "MR",
+                  "display": "Medical record number",
+                  "system": "http://terminology.hl7.org/CodeSystem/v2-0203"
+                }
+              ],
+              "text": "Medical record number"
+            },
+            "use": "usual",
+            "value": "CFP-2026-000001"
+          },
+          {
+            "system": "https://healthid.ndhm.gov.in",
+            "type": {
+              "coding": [
+                {
+                  "code": "ABHA",
+                  "display": "Ayushman Bharat Health Account (ABHA) ID",
+                  "system": "https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-identifier-type-code"
+                }
+              ],
+              "text": "ABHA number"
+            },
+            "use": "official",
+            "value": "91-1234-5678-9012"
+          },
+          {
+            "system": "https://healthid.ndhm.gov.in/address",
+            "type": {
+              "coding": [
+                {
+                  "code": "ABHA",
+                  "display": "Ayushman Bharat Health Account (ABHA) ID",
+                  "system": "https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-identifier-type-code"
+                }
+              ],
+              "text": "ABHA address"
+            },
+            "value": "anjali.das@abdm"
+          },
+          {
+            "system": "urn:cdi:legacy-mrn",
+            "type": {
+              "coding": [
+                {
+                  "code": "MR",
+                  "display": "Medical record number",
+                  "system": "http://terminology.hl7.org/CodeSystem/v2-0203"
+                }
+              ],
+              "text": "Legacy MRN"
+            },
+            "value": "LEG-7"
+          }
+        ],
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/Patient"
+          ]
+        },
+        "name": [
+          {
+            "text": "Anjali Das"
+          }
+        ],
+        "resourceType": "Patient"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:66c0d3a9-c723-5c30-9792-4fe5880edc7e",
+      "resource": {
+        "id": "66c0d3a9-c723-5c30-9792-4fe5880edc7e",
+        "identifier": [
+          {
+            "system": "https://careflow.clinic/facility",
+            "type": {
+              "coding": [
+                {
+                  "code": "PRN",
+                  "display": "Provider number",
+                  "system": "http://terminology.hl7.org/CodeSystem/v2-0203"
+                }
+              ],
+              "text": "Facility ID"
+            },
+            "value": "CAREFLOW-POLYCLINIC-1"
+          }
+        ],
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/Organization"
+          ]
+        },
+        "name": "CareFlow Polyclinic",
+        "resourceType": "Organization"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:879e8ef4-7177-523f-8424-2bb515888f11",
+      "resource": {
+        "id": "879e8ef4-7177-523f-8424-2bb515888f11",
+        "identifier": [
+          {
+            "system": "https://careflow.clinic/practitioner",
+            "type": {
+              "coding": [
+                {
+                  "code": "OIN",
+                  "display": "Other identifier",
+                  "system": "https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-identifier-type-code"
+                }
+              ],
+              "text": "CareFlow practitioner id"
+            },
+            "value": "879e8ef4-7177-523f-8424-2bb515888f11"
+          }
+        ],
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/Practitioner"
+          ]
+        },
+        "name": [
+          {
+            "text": "Attending clinician"
+          }
+        ],
+        "resourceType": "Practitioner"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:ed2b6bf7-6393-559d-901c-b4d662b9bf39",
+      "resource": {
+        "class": {
+          "code": "AMB",
+          "display": "ambulatory",
+          "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode"
+        },
+        "id": "ed2b6bf7-6393-559d-901c-b4d662b9bf39",
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/Encounter"
+          ]
+        },
+        "period": {
+          "start": "2026-08-12T09:30:00+00:00"
+        },
+        "resourceType": "Encounter",
+        "status": "finished",
+        "subject": {
+          "reference": "urn:uuid:3b373192-2a50-5879-b4f4-d35451854e76"
+        }
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:5e9cdeeb-96f6-5b9e-aaa1-1440d85fe354",
+      "resource": {
+        "category": [
+          {
+            "coding": [
+              {
+                "code": "laboratory",
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "code": "4548-4",
+              "display": "Hemoglobin A1c/Hemoglobin.total in Blood",
+              "system": "http://loinc.org"
+            }
+          ],
+          "text": "HbA1c"
+        },
+        "effectiveDateTime": "2026-08-12T09:30:00+00:00",
+        "encounter": {
+          "reference": "urn:uuid:ed2b6bf7-6393-559d-901c-b4d662b9bf39"
+        },
+        "id": "5e9cdeeb-96f6-5b9e-aaa1-1440d85fe354",
+        "interpretation": [
+          {
+            "coding": [
+              {
+                "code": "H",
+                "system": "http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation"
+              }
+            ]
+          }
+        ],
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/Observation"
+          ]
+        },
+        "referenceRange": [
+          {
+            "high": {
+              "code": "%",
+              "system": "http://unitsofmeasure.org",
+              "unit": "%",
+              "value": 5.6
+            },
+            "low": {
+              "code": "%",
+              "system": "http://unitsofmeasure.org",
+              "unit": "%",
+              "value": 4.0
+            }
+          }
+        ],
+        "resourceType": "Observation",
+        "status": "final",
+        "subject": {
+          "reference": "urn:uuid:3b373192-2a50-5879-b4f4-d35451854e76"
+        },
+        "valueQuantity": {
+          "code": "%",
+          "system": "http://unitsofmeasure.org",
+          "unit": "%",
+          "value": 7.8
+        }
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:e7c4d9be-0d91-5fd2-a034-ca8a2bcc4869",
+      "resource": {
+        "category": [
+          {
+            "coding": [
+              {
+                "code": "laboratory",
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "code": "1558-6",
+              "display": "Fasting glucose [Mass/volume] in Serum or Plasma",
+              "system": "http://loinc.org"
+            }
+          ],
+          "text": "Fasting Blood Glucose"
+        },
+        "effectiveDateTime": "2026-08-12T09:30:00+00:00",
+        "encounter": {
+          "reference": "urn:uuid:ed2b6bf7-6393-559d-901c-b4d662b9bf39"
+        },
+        "id": "e7c4d9be-0d91-5fd2-a034-ca8a2bcc4869",
+        "interpretation": [
+          {
+            "coding": [
+              {
+                "code": "H",
+                "system": "http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation"
+              }
+            ]
+          }
+        ],
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/Observation"
+          ]
+        },
+        "referenceRange": [
+          {
+            "high": {
+              "code": "mg/dL",
+              "system": "http://unitsofmeasure.org",
+              "unit": "mg/dL",
+              "value": 100.0
+            },
+            "low": {
+              "code": "mg/dL",
+              "system": "http://unitsofmeasure.org",
+              "unit": "mg/dL",
+              "value": 70.0
+            }
+          }
+        ],
+        "resourceType": "Observation",
+        "status": "final",
+        "subject": {
+          "reference": "urn:uuid:3b373192-2a50-5879-b4f4-d35451854e76"
+        },
+        "valueQuantity": {
+          "code": "mg/dL",
+          "system": "http://unitsofmeasure.org",
+          "unit": "mg/dL",
+          "value": 142.0
+        }
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:270cb3d5-46d0-530f-a396-43a06559e146",
+      "resource": {
+        "category": [
+          {
+            "coding": [
+              {
+                "code": "laboratory",
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "code": "2160-0",
+              "display": "Creatinine [Mass/volume] in Serum or Plasma",
+              "system": "http://loinc.org"
+            }
+          ],
+          "text": "Serum Creatinine"
+        },
+        "effectiveDateTime": "2026-08-12T09:30:00+00:00",
+        "encounter": {
+          "reference": "urn:uuid:ed2b6bf7-6393-559d-901c-b4d662b9bf39"
+        },
+        "id": "270cb3d5-46d0-530f-a396-43a06559e146",
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/Observation"
+          ]
+        },
+        "referenceRange": [
+          {
+            "high": {
+              "code": "mg/dL",
+              "system": "http://unitsofmeasure.org",
+              "unit": "mg/dL",
+              "value": 1.3
+            },
+            "low": {
+              "code": "mg/dL",
+              "system": "http://unitsofmeasure.org",
+              "unit": "mg/dL",
+              "value": 0.6
+            }
+          }
+        ],
+        "resourceType": "Observation",
+        "status": "final",
+        "subject": {
+          "reference": "urn:uuid:3b373192-2a50-5879-b4f4-d35451854e76"
+        },
+        "valueQuantity": {
+          "code": "mg/dL",
+          "system": "http://unitsofmeasure.org",
+          "unit": "mg/dL",
+          "value": 1.1
+        }
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:3e2c3bed-efb3-52d6-bd6c-e515ca486380",
+      "resource": {
+        "content": [
+          {
+            "attachment": {
+              "contentType": "image/png",
+              "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4//8/AAX+Av6n1qTFAAAAAElFTkSuQmCC",
+              "title": "lab_report_golden.png"
+            }
+          }
+        ],
+        "id": "3e2c3bed-efb3-52d6-bd6c-e515ca486380",
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/DocumentReference"
+          ]
+        },
+        "resourceType": "DocumentReference",
+        "status": "current",
+        "subject": {
+          "reference": "urn:uuid:3b373192-2a50-5879-b4f4-d35451854e76"
+        },
+        "type": {
+          "text": "Scanned source document"
+        }
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:b4caef18-ec85-5223-97af-c591315b57ae",
+      "resource": {
+        "category": [
+          {
+            "coding": [
+              {
+                "code": "394595002",
+                "display": "Pathology",
+                "system": "http://snomed.info/sct"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "code": "11502-2",
+              "display": "Laboratory report",
+              "system": "http://loinc.org"
+            }
+          ],
+          "text": "Laboratory report"
+        },
+        "conclusion": "No overall conclusion is stated on the source report; see the individual results.",
+        "encounter": {
+          "reference": "urn:uuid:ed2b6bf7-6393-559d-901c-b4d662b9bf39"
+        },
+        "id": "b4caef18-ec85-5223-97af-c591315b57ae",
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/DiagnosticReportLab"
+          ]
+        },
+        "resourceType": "DiagnosticReport",
+        "result": [
+          {
+            "reference": "urn:uuid:5e9cdeeb-96f6-5b9e-aaa1-1440d85fe354"
+          },
+          {
+            "reference": "urn:uuid:e7c4d9be-0d91-5fd2-a034-ca8a2bcc4869"
+          },
+          {
+            "reference": "urn:uuid:270cb3d5-46d0-530f-a396-43a06559e146"
+          }
+        ],
+        "resultsInterpreter": [
+          {
+            "reference": "urn:uuid:879e8ef4-7177-523f-8424-2bb515888f11"
+          }
+        ],
+        "status": "final",
+        "subject": {
+          "reference": "urn:uuid:3b373192-2a50-5879-b4f4-d35451854e76"
+        }
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:520866c0-f4ef-59b2-87a8-b70856e3e75c",
+      "resource": {
+        "agent": [
+          {
+            "onBehalfOf": {
+              "reference": "urn:uuid:66c0d3a9-c723-5c30-9792-4fe5880edc7e"
+            },
+            "type": {
+              "text": "assembler"
+            },
+            "who": {
+              "reference": "urn:uuid:66c0d3a9-c723-5c30-9792-4fe5880edc7e"
+            }
+          }
+        ],
+        "entity": [
+          {
+            "role": "source",
+            "what": {
+              "reference": "urn:uuid:3e2c3bed-efb3-52d6-bd6c-e515ca486380"
+            }
+          }
+        ],
+        "id": "520866c0-f4ef-59b2-87a8-b70856e3e75c",
+        "meta": {
+          "profile": [
+            "http://hl7.org/fhir/StructureDefinition/Provenance"
+          ]
+        },
+        "reason": [
+          {
+            "text": "Generated by CDI-Adapter from the scan; model stack: extractor=golden-fixture"
+          }
+        ],
+        "recorded": "2026-08-12T10:00:00+00:00",
+        "resourceType": "Provenance",
+        "target": [
+          {
+            "reference": "urn:uuid:5e9cdeeb-96f6-5b9e-aaa1-1440d85fe354"
+          },
+          {
+            "reference": "urn:uuid:e7c4d9be-0d91-5fd2-a034-ca8a2bcc4869"
+          },
+          {
+            "reference": "urn:uuid:270cb3d5-46d0-530f-a396-43a06559e146"
+          },
+          {
+            "reference": "urn:uuid:b4caef18-ec85-5223-97af-c591315b57ae"
+          },
+          {
+            "reference": "urn:uuid:3e2c3bed-efb3-52d6-bd6c-e515ca486380"
+          }
+        ]
+      }
+    }
+  ],
+  "id": "69b0d008-b44b-5271-87fb-12edbfa672d7",
+  "identifier": {
+    "system": "urn:cdi:bundle",
+    "value": "d6e919b7-664f-55e0-bc3d-c6e03ff3da70"
+  },
+  "meta": {
+    "lastUpdated": "2026-08-12T10:00:00+00:00",
+    "profile": [
+      "https://nrces.in/ndhm/fhir/r4/StructureDefinition/DocumentBundle"
+    ],
+    "versionId": "1"
+  },
+  "resourceType": "Bundle",
+  "timestamp": "2026-08-12T10:00:00+00:00",
+  "type": "document"
+}

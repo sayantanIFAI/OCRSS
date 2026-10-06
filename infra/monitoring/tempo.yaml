@@ -1,0 +1,33 @@
+# Tempo for CDI-Adapter traces (backlog E10-S3). Single binary, local storage, loopback only.
+# Receives OTLP/HTTP from the web app and the model gateway on 127.0.0.1:4318
+# (CDI_OTEL_TRACES_ENDPOINT=http://127.0.0.1:4318/v1/traces). ${TEMPO_DATA}: start_monitoring.sh
+# (-config.expand-env=true). 30 days, as Prometheus and Loki.
+stream_over_http_enabled: true
+server:
+  http_listen_address: 127.0.0.1
+  http_listen_port: 3200
+  grpc_listen_address: 127.0.0.1
+  grpc_listen_port: 9096
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        http:
+          endpoint: 127.0.0.1:4318
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: ${TEMPO_DATA}/traces
+    wal:
+      path: ${TEMPO_DATA}/wal
+
+# Tempo 3.0 moved compaction and retention from `compactor` to the backend worker
+backend_worker:
+  compaction:
+    block_retention: 720h
+
+usage_report:
+  reporting_enabled: false

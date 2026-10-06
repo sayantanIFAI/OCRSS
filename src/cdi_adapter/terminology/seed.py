@@ -243,6 +243,38 @@ ROUTE_SCT = {
     "nasal": ("46713006", "Nasal route"),
 }
 
+# tests a prescription ADVISES (owner request 2026-09-28, fact type ``lab_order``): the panels
+# doctors order by name, plus a few ordered studies; an advised single analyte ("HbA1c", "TSH")
+# binds to LABS, an advised X-ray / echo to PROCEDURES. Same provenance caveat as above.
+LAB_PANELS = (
+    _l("58410-2", "CBC panel - Blood by Automated count", "cbc", "complete blood count",
+       "cbp", "complete blood picture", "hemogram", "haemogram", "cbc with esr"),
+    _l("24325-3", "Hepatic function panel - Serum or Plasma", "lft", "lfts",
+       "liver function test", "liver function tests", "liver profile"),
+    _l("24362-6", "Renal function panel - Serum or Plasma", "rft", "kft", "rfts", "kfts",
+       "renal function test", "kidney function test", "renal profile", "kidney profile"),
+    _l("57698-3", "Lipid panel with direct LDL - Serum or Plasma", "lipid profile",
+       "lipid panel", "fasting lipid profile", "flp"),
+    _l("24356-8", "Urinalysis complete panel - Urine", "urine routine", "urine r/m",
+       "urine rm", "urine re", "urine routine microscopy", "urine routine examination",
+       "urinalysis", "cue", "complete urine examination"),
+    _l("24326-1", "Electrolytes 1998 panel - Serum or Plasma", "serum electrolytes",
+       "electrolytes"),
+    _l("882-1", "ABO and Rh group [Type] in Blood", "blood group", "blood grouping",
+       "abo rh", "blood group and rh"),
+    _l("630-4", "Bacteria identified in Urine by Culture", "urine culture", "urine c/s",
+       "urine culture and sensitivity"),
+)  # fmt: skip
+
+ORDERED_STUDIES = (
+    _c("29303009", "Electrocardiographic procedure", "ecg", "ekg", "electrocardiogram",
+       "12 lead ecg"),
+    _c("45036003", "Ultrasonography of abdomen", "usg abdomen", "usg whole abdomen",
+       "ultrasound abdomen", "usg abdomen and pelvis"),
+)  # fmt: skip
+
+ORDER_CONCEPTS = LAB_PANELS + ORDERED_STUDIES
+
 # fact_type -> the concept tables it may bind to
 TABLES_FOR_FACT_TYPE: dict[str, tuple[tuple[Concept, ...], ...]] = {
     "condition": (CONDITIONS,),
@@ -252,6 +284,7 @@ TABLES_FOR_FACT_TYPE: dict[str, tuple[tuple[Concept, ...], ...]] = {
     "vital_sign": (VITALS,),
     "medication": (DRUGS,),
     "allergy": (ALLERGENS, DRUGS),
+    "lab_order": (LAB_PANELS, LABS, ORDERED_STUDIES, PROCEDURES),
 }
 
 ALL_CONCEPTS = CONDITIONS + SYMPTOMS + PROCEDURES + LABS + VITALS + DRUGS + ALLERGENS

@@ -1,0 +1,20 @@
+# Alertmanager for CDI-Adapter (backlog E10-S2). Listens on 127.0.0.1:9093 only, no clustering
+# (start_monitoring.sh). On-call responses: docs/alerts.md.
+#
+# Delivery: the clinic has not named an on-call channel yet, so `oncall` has no integration and
+# alerts are visible in Alertmanager and on the Grafana dashboard only. To page someone, add ONE
+# integration under the receiver (email_configs / webhook_configs / ...), keeping any credential in
+# the secrets store (docs/secrets.md), never in this file.
+route:
+  receiver: oncall
+  group_by: [alertname]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 1h
+  routes:
+    - matchers: [severity = "ticket"]   # a quality regression, not an outage: once a day
+      receiver: oncall
+      repeat_interval: 24h
+
+receivers:
+  - name: oncall

@@ -156,8 +156,18 @@ def _mint(conn: Connection, cand: Candidate) -> UUID:
     return pid
 
 
+# pg advisory-lock key serialising resolve_identity (any fixed bigint; ascii 'CDI MPI')
+RESOLVE_LOCK_KEY = 0x434449204D5049
+
+
 def resolve_identity(conn: Connection, cand: Candidate) -> tuple[UUID, str]:
-    """Return ``(patient_id, how)`` with ``how`` in ``abha`` | ``fuzzy`` | ``minted``."""
+    """Return ``(patient_id, how)`` with ``how`` in ``abha`` | ``fuzzy`` | ``minted``.
+
+    Look-up and mint are one step under a transaction-scoped advisory lock: jobs extract in
+    parallel with vLLM (backlog E2-S2), and two documents of the same new patient must not both
+    miss the look-up and mint two records. The lock is released when the caller's transaction ends.
+    """
+    conn.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": RESOLVE_LOCK_KEY})
     if cand.abha:
         pid = conn.execute(
             text("SELECT id FROM patient_identity "
@@ -247,5 +257,29 @@ def merge_identity_evidence(conn: Connection, patient_id: UUID | str) -> dict[st
 def get_patient(conn: Connection, patient_id: UUID | str) -> dict[str, Any] | None:
     row = conn.execute(
         text("SELECT * FROM patient_identity WHERE id = :p"), {"p": patient_id}
+    ).mappings().first()  # fmt: skip
+    return dict(row) if row else None
+
+
+def patient_summary(conn: Connection, patient_id: UUID | str) -> dict[str, Any] | None:
+    """The identity as staff see it after an upload. ``age_text`` is the age as printed on the
+    patient's latest document that states one. ``birth_date`` is given only when it is known: a
+    document printed that full date, or the registry holds it. A minted identity with only an
+    age keeps 1 January of the estimated year for matching (``_mint``); shown or prefilled, that
+    estimate would be saved into the registry as if it were the real date of birth."""
+    row = conn.execute(
+        text(
+            "SELECT i.mpi_id, i.name, i.sex, i.identity_confidence, "
+            "  CASE WHEN EXISTS (SELECT 1 FROM patient_identity_alias a "
+            "                    WHERE a.patient_id = i.id AND a.birth_date = i.birth_date) "
+            "         OR EXISTS (SELECT 1 FROM patient_registry r "
+            "                    WHERE r.patient_id = i.mpi_id AND r.dob = i.birth_date) "
+            "       THEN i.birth_date END AS birth_date, "
+            "  (SELECT a.age_text FROM patient_identity_alias a "
+            "   WHERE a.patient_id = i.id AND a.age_text IS NOT NULL "
+            "   ORDER BY a.created_at DESC LIMIT 1) AS age_text "
+            "FROM patient_identity i WHERE i.id = :p"
+        ),
+        {"p": patient_id},
     ).mappings().first()  # fmt: skip
     return dict(row) if row else None

@@ -11,6 +11,8 @@ dist/
 htmlcov/
 .env
 data/
+# small synthetic test fixtures (the catalogue sample) are part of the repo
+!tests/data/
 logs/
 # native dev/test binaries + their data dirs (local only; production runs natively on the pod)
 .tools/

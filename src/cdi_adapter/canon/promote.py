@@ -17,7 +17,7 @@ from uuid import UUID
 
 from sqlalchemy import Connection, text
 
-from cdi_adapter import repo
+from cdi_adapter import metrics, repo
 from cdi_adapter.canon import repo as canon
 from cdi_adapter.fhir import canonical, validate_abdm
 from cdi_adapter.fhir.resources import artifact_for
@@ -29,7 +29,12 @@ class WorkflowError(Exception):
         self.status, self.detail = status, detail
 
 
-def _item(conn: Connection, item_id) -> dict[str, Any]:
+def _item(conn: Connection, item_id, *, lock: bool = False) -> dict[str, Any]:
+    if lock:
+        # a decision holds the item's row until it commits: a second approve (a double click, or
+        # the other web instance) waits, then sees "approved" and is refused. 2026-09-25: approve
+        # runs the validator for seconds, and 5 clicks promoted the same item 5 times
+        conn.execute(text("SELECT 1 FROM rv_item WHERE id = :i FOR UPDATE"), {"i": str(item_id)})
     item = canon.get_item(conn, item_id)
     if item is None:
         raise WorkflowError(404, "review item not found")
@@ -49,23 +54,30 @@ def claim(conn: Connection, item_id: UUID | str, reviewer: str) -> dict[str, Any
             + (f" by {item['assigned_to']}" if item["assigned_to"] else ""),
         )
     canon.add_action(conn, item_id, reviewer, "claim")
+    metrics.REVIEW_ITEMS.labels("claim").inc()
     repo.write_audit(conn, actor=reviewer, action="update", entity="rv_item",
                      entity_id=item_id, detail={"action": "claim"})  # fmt: skip
     return _item(conn, item_id)
 
 
-def _assert_claimed(item: dict[str, Any]) -> None:
-    """§4.5 workflow: an item is claimed into a worklist before it is approved or rejected."""
+def _assert_claimed(item: dict[str, Any], reviewer: str, override: bool = False) -> None:
+    """§4.5 workflow: an item is claimed into a worklist before it is approved or rejected, and
+    only by the reviewer whose worklist holds it (backlog E7-S1). ``override`` (an admin) may act
+    on another reviewer's claimed item; the decision is still recorded under the admin's name."""
     if item["status"] != "claimed":
         raise WorkflowError(409, f"item is {item['status']}")
+    if item["assigned_to"] != reviewer and not override:
+        raise WorkflowError(403, f"item is claimed by {item['assigned_to']}")
 
 
-def reject_item(conn: Connection, item_id, reviewer: str, reason: str | None) -> dict[str, Any]:
-    item = _item(conn, item_id)
-    _assert_claimed(item)
+def reject_item(conn: Connection, item_id, reviewer: str, reason: str | None, *,
+                override: bool = False) -> dict[str, Any]:  # fmt: skip
+    item = _item(conn, item_id, lock=True)
+    _assert_claimed(item, reviewer, override)
     conn.execute(text("UPDATE rv_item SET status = 'rejected', decided_at = now() WHERE id = :i"),
                  {"i": str(item_id)})  # fmt: skip
     canon.add_action(conn, item_id, reviewer, "reject", {"reason": reason})
+    metrics.REVIEW_ITEMS.labels("reject").inc()
     repo.write_audit(conn, actor=reviewer, action="update", entity="rv_item", entity_id=item_id,
                      detail={"action": "reject", "reason": reason})  # fmt: skip
     return _item(conn, item_id)
@@ -149,12 +161,17 @@ def _promote_fact(conn: Connection, f: dict[str, Any], item_id, reviewer: str) -
                                      "reaction": f["value_text"],
                                      "clinical_status": "active"})  # fmt: skip
         return "cn_allergy"
+    if t == "lab_order":  # a test the prescription advises (owner request 2026-09-28)
+        _insert(conn, "cn_lab_order", {**c, "code_system": f["code_system"], "code": f["code"],
+                                       "test_text": f["local_text"]})  # fmt: skip
+        return "cn_lab_order"
     return None  # other fact types stay in the per-document record only
 
 
-def promote_review_item(conn: Connection, rv_item_id: UUID | str, reviewer: str) -> dict[str, Any]:
-    item = _item(conn, rv_item_id)
-    _assert_claimed(item)
+def promote_review_item(conn: Connection, rv_item_id: UUID | str, reviewer: str, *,
+                        override: bool = False) -> dict[str, Any]:  # fmt: skip
+    item = _item(conn, rv_item_id, lock=True)
+    _assert_claimed(item, reviewer, override)
     els = canon.elements(conn, rv_item_id)
 
     model = conn.execute(text("SELECT model_name FROM extraction WHERE document_id = :d "
@@ -226,6 +243,7 @@ def promote_review_item(conn: Connection, rv_item_id: UUID | str, reviewer: str)
     conn.execute(text("UPDATE rv_item SET status = 'approved', decided_at = now() WHERE id = :i"),
                  {"i": str(rv_item_id)})  # fmt: skip
     canon.add_action(conn, rv_item_id, reviewer, "approve")
+    metrics.REVIEW_ITEMS.labels("approve").inc()
     canon.add_action(conn, rv_item_id, reviewer, "promote", {"promoted": promoted})
     repo.write_audit(conn, actor=reviewer, action="create", entity="cn_fhir_bundle",
                      entity_id=rv_item_id,

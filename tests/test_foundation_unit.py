@@ -34,7 +34,7 @@ def test_settings_defaults_match_architecture_section_9(monkeypatch):
     assert s.extract_retries == 1
     assert s.job_max_workers == 6
     assert (s.ocr_engine, s.handwritten_uses_vlm) == ("rapidocr", True)
-    assert s.ig_package == "nrces.fhir.r4.ndhm#6.5.0"
+    assert s.ig_package == "ndhm.in#6.5.0"  # E6-S1: the registry id of the NRCeS ABDM IG
     assert s.terminology_package == "in-snomed-loinc-icd10"
     assert s.inbox_dir.endswith("inbox")
 

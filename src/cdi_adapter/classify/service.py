@@ -119,11 +119,18 @@ def _heuristic_classify(text: str) -> HeuristicResult | None:
     return None
 
 
-def _ocr_hint(png: bytes) -> str:
+def _ocr_hint(png: bytes) -> tuple[str, list[float]]:
     """One-off RapidOCR pass: only when no ``ocr_block`` rows exist (the Celery path)."""
     from cdi_adapter.ocr.rapid import run_rapidocr
 
-    return "\n".join(ln.text for ln in run_rapidocr(png))
+    lines = run_rapidocr(png)
+    return "\n".join(ln.text for ln in lines), [ln.conf for ln in lines]
+
+
+def ocr_looks_printed(confs: list[float], min_mean: float) -> bool:
+    """Is page 1 printed cleanly enough for the rule-based fast path? A print OCR reading
+    handwriting is unsure of most lines; no confidences at all is not evidence of handwriting."""
+    return not confs or sum(confs) / len(confs) >= min_mean
 
 
 def classify_document(
@@ -142,15 +149,22 @@ def classify_document(
         run_id = repo.start_run(conn, document_id=document_id, stage="classify")
 
     try:
-        page1 = [b["text"] for b in blocks if b["page_no"] == 1]
+        page1 = [b for b in blocks if b["page_no"] == 1]
         page1_png: bytes | None = None
         if page1:
-            hint = "\n".join(page1)
+            hint = "\n".join(b["text"] for b in page1)
+            confs = [float(b["ocr_conf"]) for b in page1 if b.get("ocr_conf") is not None]
         else:
             page1_png = (store or get_store()).get_bytes(pages[0]["storage_key"])
-            hint = _ocr_hint(page1_png)
+            hint, confs = _ocr_hint(page1_png)
 
-        heuristic = _heuristic_classify(hint) if settings.fast_classify else None
+        # the fast path is for cleanly printed pages: an unsure print OCR (handwriting) goes to the
+        # VLM, whose "is_handwritten" routes the page through the VLM handwriting pass (S3)
+        printed = ocr_looks_printed(confs, settings.fast_classify_min_ocr_conf)
+        if settings.fast_classify and not printed:
+            log.info("classify_ocr_uncertain", document_id=str(document_id), lines=len(confs),
+                     mean_conf=round(sum(confs) / len(confs), 3))  # fmt: skip
+        heuristic = _heuristic_classify(hint) if settings.fast_classify and printed else None
         if heuristic is not None:
             result: dict[str, Any] = {
                 "doc_type": heuristic.doc_type, "specialty": None, "languages": ["en"],

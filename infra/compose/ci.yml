@@ -1,0 +1,6 @@
+# Only for disposable CI services: exposes backing services to the host test runner.
+services:
+  postgres:
+    ports: ["127.0.0.1:5432:5432"]
+  minio:
+    ports: ["127.0.0.1:9000:9000"]

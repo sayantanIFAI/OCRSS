@@ -10,7 +10,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 
 from cdi_adapter.ingest.pages import UnsupportedDocument
 
-app = FastAPI(title="cdi-adapter ingest API")
+app = FastAPI(telemetry={"tracing": False}, title="cdi-adapter ingest API")
 
 
 @app.post("/ingest", status_code=202)

@@ -1,0 +1,467 @@
+# Synthetic triggers for every alert in cdi-alerts.yml (backlog E10-S2 "Tests"). Each alert has a
+# case that fires and a case that must stay quiet. Run: promtool test rules cdi-alerts.test.yml
+rule_files:
+  - cdi-alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  # ---------------------------------------------------------------- SLA window breach
+  - name: sla - a job still running past 300 s fires
+    interval: 1m
+    input_series:
+      - series: cdi_job_oldest_running_seconds{job="cdi-webapp"}
+        values: "0+30x20"          # 30 s older every minute: 300 s at minute 10
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: CdiSlaWindowBreach
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: CdiSlaWindowBreach
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations: &sla
+              summary: A job passed the 5-minute SLA window (ADR-0002).
+              description: A job is still running after 300 s, or one finished after 300 s in the last 10 minutes.
+              runbook_url: docs/alerts.md#cdislawindowbreach
+
+  - name: sla - a job that finished past 300 s fires
+    interval: 1m
+    input_series:
+      - series: cdi_job_oldest_running_seconds{job="cdi-webapp"}
+        values: "0x20"
+      - series: cdi_job_seconds_count{job="cdi-webapp"}
+        values: "0 0 0 1 1 1 1 1 1 1 1"      # one job finished at minute 3 ...
+      - series: cdi_job_seconds_bucket{job="cdi-webapp",le="300.0"}
+        values: "0x10"                        # ... and not inside 300 s
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: CdiSlaWindowBreach
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations: *sla
+
+  - name: sla - jobs finishing inside 300 s stay quiet
+    interval: 1m
+    input_series:
+      - series: cdi_job_oldest_running_seconds{job="cdi-webapp"}
+        values: "0 60 120 0 60 120 0 60 120 0 60"
+      - series: cdi_job_seconds_count{job="cdi-webapp"}
+        values: "0 0 0 1 1 1 2 2 2 3 3"
+      - series: cdi_job_seconds_bucket{job="cdi-webapp",le="300.0"}
+        values: "0 0 0 1 1 1 2 2 2 3 3"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: CdiSlaWindowBreach
+        exp_alerts: []
+
+  # ---------------------------------------------------------------- GPU OOM
+  - name: oom - an out-of-memory event fires
+    interval: 1m
+    input_series:
+      - series: cdi_vlm_oom_total{job="cdi-mlserve",where="generate"}
+        values: "0 0 0 1 1 1 1"
+      - series: cdi_vlm_oom_total{job="cdi-mlserve",where="load"}
+        values: "0x6"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: CdiGpuOom
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: CdiGpuOom
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations:
+              summary: The model gateway ran out of GPU memory.
+              description: CUDA out-of-memory in the last 15 minutes (model load, a batch, or a single call).
+              runbook_url: docs/alerts.md#cdigpuoom
+
+  - name: oom - no out-of-memory stays quiet
+    interval: 1m
+    input_series:
+      - series: cdi_vlm_oom_total{job="cdi-mlserve",where="batch"}
+        values: "0x20"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: CdiGpuOom
+        exp_alerts: []
+
+  # ---------------------------------------------------------------- queue backlog
+  - name: queue - more than 30 waiting for 5 minutes fires
+    interval: 1m
+    input_series:
+      - series: cdi_extract_waiting{job="cdi-webapp"}
+        values: "45x10"
+    alert_rule_test:
+      - eval_time: 3m            # still pending: under the 5 minutes
+        alertname: CdiQueueBacklog
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: CdiQueueBacklog
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations:
+              summary: The extraction queue is longer than the SLA can absorb.
+              description: More than 30 documents have waited for a GPU extraction slot for 5 minutes.
+              runbook_url: docs/alerts.md#cdiqueuebacklog
+
+  - name: queue - a short burst that drains stays quiet
+    interval: 1m
+    input_series:
+      - series: cdi_extract_waiting{job="cdi-webapp"}
+        values: "45 45 40 20 5 0 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: CdiQueueBacklog
+        exp_alerts: []
+
+  # ---------------------------------------------------------------- _partial rate vs baseline
+  # 5-minute samples over 7 days + 7 hours. Complete extractions: 19 per 5 minutes throughout.
+  - name: partial - a spike above the 7-day baseline fires
+    interval: 5m
+    input_series:
+      - series: cdi_extractions_total{job="cdi-webapp",outcome="complete"}
+        values: "0+19x2100"
+      - series: cdi_extractions_total{job="cdi-webapp",outcome="partial"}
+        values: "0+1x2016 2026+10x83"   # 5 % for 7 days, then 10 of 29 (34 %) for 7 hours
+    alert_rule_test:
+      - eval_time: 175h
+        alertname: CdiPartialRateAboveBaseline
+        exp_alerts:
+          - exp_labels: {severity: ticket}
+            exp_annotations:
+              summary: The _partial extraction rate is above its 7-day baseline.
+              description: The share of schema-invalid (_partial) extractions in the last hour is over 1.5x its 7-day rate plus 5 points.
+              runbook_url: docs/alerts.md#cdipartialrateabovebaseline
+
+  - name: partial - a steady rate at its baseline stays quiet
+    interval: 5m
+    input_series:
+      - series: cdi_extractions_total{job="cdi-webapp",outcome="complete"}
+        values: "0+19x2100"
+      - series: cdi_extractions_total{job="cdi-webapp",outcome="partial"}
+        values: "0+1x2100"
+    alert_rule_test:
+      - eval_time: 175h
+        alertname: CdiPartialRateAboveBaseline
+        exp_alerts: []
+
+  # ---------------------------------------------------------------- confidence drift (E10-S4)
+  # 30-minute samples; 10 facts each. Baseline (7 days): 1 at <= 0.8, 2 in (0.8, 0.95], 7 above.
+  # Shift (the last 6.5 hours): 6 at <= 0.8, 2 in (0.8, 0.95], 2 above -> KS distance 0.5.
+  - name: drift - a same-day confidence shift fires
+    interval: 30m
+    input_series:
+      - series: cdi_fact_confidence_bucket{job="cdi-webapp",fact_type="medication",le="0.8"}
+        values: "0+1x336 342+6x13"
+      - series: cdi_fact_confidence_bucket{job="cdi-webapp",fact_type="medication",le="0.95"}
+        values: "0+3x336 1016+8x13"
+      - series: cdi_fact_confidence_bucket{job="cdi-webapp",fact_type="medication",le="+Inf"}
+        values: "0+10x350"
+      - series: cdi_fact_confidence_count{job="cdi-webapp",fact_type="medication"}
+        values: "0+10x350"
+    alert_rule_test:
+      - eval_time: 168h           # still the baseline
+        alertname: CdiConfidenceDrift
+        exp_alerts: []
+      - eval_time: 175h
+        alertname: CdiConfidenceDrift
+        exp_alerts:
+          - exp_labels: {severity: ticket}
+            exp_annotations:
+              summary: The fact confidence distribution shifted away from its 7-day baseline.
+              description: The Kolmogorov-Smirnov distance between the last 6 hours and the previous 7 days is over 0.25 (at least 50 facts).
+              runbook_url: docs/alerts.md#cdiconfidencedrift
+
+  - name: drift - a steady distribution stays quiet
+    interval: 30m
+    input_series:
+      - series: cdi_fact_confidence_bucket{job="cdi-webapp",fact_type="medication",le="0.8"}
+        values: "0+1x350"
+      - series: cdi_fact_confidence_bucket{job="cdi-webapp",fact_type="medication",le="0.95"}
+        values: "0+3x350"
+      - series: cdi_fact_confidence_bucket{job="cdi-webapp",fact_type="medication",le="+Inf"}
+        values: "0+10x350"
+      - series: cdi_fact_confidence_count{job="cdi-webapp",fact_type="medication"}
+        values: "0+10x350"
+    alert_rule_test:
+      - eval_time: 175h
+        alertname: CdiConfidenceDrift
+        exp_alerts: []
+
+  - name: drift - a shift on too few facts stays quiet
+    interval: 30m
+    input_series:            # the same shape change, but 2 facts per 30 minutes: 24 in 6 hours
+      - series: cdi_fact_confidence_bucket{job="cdi-webapp",fact_type="vital_sign",le="0.8"}
+        values: "0+1x336 338+2x13"
+      - series: cdi_fact_confidence_bucket{job="cdi-webapp",fact_type="vital_sign",le="0.95"}
+        values: "0+3x336 1010+2x13"
+      - series: cdi_fact_confidence_bucket{job="cdi-webapp",fact_type="vital_sign",le="+Inf"}
+        values: "0+10x336 3362+2x13"
+      - series: cdi_fact_confidence_count{job="cdi-webapp",fact_type="vital_sign"}
+        values: "0+10x336 3362+2x13"
+    alert_rule_test:
+      - eval_time: 175h
+        alertname: CdiConfidenceDrift
+        exp_alerts: []
+
+  - name: partial - too few extractions to judge stays quiet
+    interval: 5m
+    input_series:
+      - series: cdi_extractions_total{job="cdi-webapp",outcome="complete"}
+        values: "0x2100"
+      - series: cdi_extractions_total{job="cdi-webapp",outcome="partial"}
+        values: "0x2090 1 2 3 4 5 5 5 5 5 5"   # 5 extractions in the hour, all partial
+    alert_rule_test:
+      - eval_time: 175h
+        alertname: CdiPartialRateAboveBaseline
+        exp_alerts: []
+
+  # ---------------------------------------------------------------- data-tier HA (E10-S6)
+  - name: pg lag - a standby 45 s behind for 2 minutes pages
+    interval: 1m
+    input_series:
+      - series: cdi_pg_replication_lag_seconds{job="cdi-webapp"}
+        values: "0 0 45 45 45 45 45"
+    alert_rule_test:
+      - eval_time: 3m             # still pending: under the 2 minutes
+        alertname: CdiPgReplicationLag
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: CdiPgReplicationLag
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations:
+              summary: The Postgres standby is more than 30 seconds behind the primary.
+              description: A failover now would lose more than 30 seconds of commits (the RPO target is under 1 minute).
+              runbook_url: docs/alerts.md#cdipgreplicationlag
+
+  - name: pg lag - a short spike under 2 minutes stays quiet
+    interval: 1m
+    input_series:
+      - series: cdi_pg_replication_lag_seconds{job="cdi-webapp"}
+        values: "0 50 0 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: CdiPgReplicationLag
+        exp_alerts: []
+
+  - name: pg standby - an inactive slot for 5 minutes fires
+    interval: 1m
+    input_series:
+      - series: cdi_pg_replication_slots_inactive{job="cdi-webapp"}
+        values: "0 1 1 1 1 1 1 1 1"
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: CdiPgStandbyDisconnected
+        exp_alerts:
+          - exp_labels: {severity: ticket}
+            exp_annotations:
+              summary: The Postgres standby is not connected to the primary.
+              description: A replication slot has had no standby streaming from it for 5 minutes; there is no failover target.
+              runbook_url: docs/alerts.md#cdipgstandbydisconnected
+
+  - name: pg standby - a reconnect within minutes stays quiet
+    interval: 1m
+    input_series:
+      - series: cdi_pg_replication_slots_inactive{job="cdi-webapp"}
+        values: "0 1 1 0 0 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: CdiPgStandbyDisconnected
+        exp_alerts: []
+
+  - name: minio - a drive offline for 2 minutes fires
+    interval: 1m
+    input_series:
+      - series: cdi_minio_drives{job="cdi-webapp"}
+        values: "4x6"
+      - series: cdi_minio_drives_offline{job="cdi-webapp"}
+        values: "0 1 1 1 1 1 1"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: CdiMinioDegraded
+        exp_alerts:
+          - exp_labels: {severity: ticket}
+            exp_annotations:
+              summary: MinIO is running with a drive or a host missing.
+              description: A MinIO drive is offline or a MinIO host does not answer; one more loss stops writes to the scan store.
+              runbook_url: docs/alerts.md#cdiminiodegraded
+
+  - name: minio - one host of four down for 2 minutes fires
+    interval: 1m
+    input_series:
+      - series: cdi_minio_nodes{job="cdi-webapp"}
+        values: "4x6"
+      - series: cdi_minio_nodes_online{job="cdi-webapp"}
+        values: "4 3 3 3 3 3 3"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: CdiMinioDegraded
+        exp_alerts:
+          - exp_labels: {severity: ticket}
+            exp_annotations:
+              summary: MinIO is running with a drive or a host missing.
+              description: A MinIO drive is offline or a MinIO host does not answer; one more loss stops writes to the scan store.
+              runbook_url: docs/alerts.md#cdiminiodegraded
+
+  - name: minio - every drive and host present stays quiet
+    interval: 1m
+    input_series:
+      - series: cdi_minio_drives_offline{job="cdi-webapp"}
+        values: "0x6"
+      - series: cdi_minio_nodes{job="cdi-webapp"}
+        values: "4x6"
+      - series: cdi_minio_nodes_online{job="cdi-webapp"}
+        values: "4x6"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: CdiMinioDegraded
+        exp_alerts: []
+
+  # ---------------------------------------------------------------- backups + restore drill (E10-S11)
+  # promtool's clock starts at 0: a timestamp gauge that stays at 0 ages with time()
+  - name: backup - no good backup for 45 minutes pages
+    interval: 1m
+    input_series:
+      - series: cdi_backup_last_success_timestamp_seconds{job="cdi-webapp"}
+        values: "0x60"
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: CdiBackupStale
+        exp_alerts: []
+      - eval_time: 55m
+        alertname: CdiBackupStale
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations:
+              summary: No good backup for 45 minutes.
+              description: The newest good pg_dump + object backup is more than 45 minutes old; a restore now would lose more than the RPO target.
+              runbook_url: docs/alerts.md#cdibackupstale
+
+  - name: backup - a backup every 15 minutes stays quiet
+    interval: 15m
+    input_series:
+      - series: cdi_backup_last_success_timestamp_seconds{job="cdi-webapp"}
+        values: "0+900x8"
+    alert_rule_test:
+      - eval_time: 115m
+        alertname: CdiBackupStale
+        exp_alerts: []
+
+  - name: restore drill - a failed drill pages
+    interval: 1m
+    input_series:
+      - series: cdi_dr_restore_last_ok{job="cdi-webapp"}
+        values: "1 1 0 0 0"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: CdiRestoreDrillFailed
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: CdiRestoreDrillFailed
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations:
+              summary: The last restore drill failed.
+              description: Restoring the backups into a clean environment failed or missed its RPO/RTO target; the backups may not be restorable.
+              runbook_url: docs/alerts.md#cdirestoredrillfailed
+
+  - name: restore drill - a passing drill stays quiet
+    interval: 1m
+    input_series:
+      - series: cdi_dr_restore_last_ok{job="cdi-webapp"}
+        values: "1x5"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: CdiRestoreDrillFailed
+        exp_alerts: []
+
+  - name: restore drill - none for 8 days fires
+    interval: 5m               # samples within the 5-minute lookback, like a real scrape
+    input_series:
+      - series: cdi_dr_restore_last_timestamp_seconds{job="cdi-webapp"}
+        values: "0x2400"
+    alert_rule_test:
+      - eval_time: 190h
+        alertname: CdiRestoreDrillOverdue
+        exp_alerts: []
+      - eval_time: 194h
+        alertname: CdiRestoreDrillOverdue
+        exp_alerts:
+          - exp_labels: {severity: ticket}
+            exp_annotations:
+              summary: No restore drill for 8 days.
+              description: The weekly restore drill has not finished for more than 8 days; the backups are untested.
+              runbook_url: docs/alerts.md#cdirestoredrilloverdue
+
+  - name: restore drill - a weekly drill stays quiet
+    interval: 5m
+    input_series:
+      - series: cdi_dr_restore_last_timestamp_seconds{job="cdi-webapp"}
+        values: "0x2015 604800x1100"
+    alert_rule_test:
+      - eval_time: 250h
+        alertname: CdiRestoreDrillOverdue
+        exp_alerts: []
+
+  # ---------------------------------------------------------------- app tier (E10-S9)
+  - name: webapp instance - one instance down for 2 minutes fires, a short blip does not
+    interval: 1m
+    input_series:
+      - series: up{job="cdi-webapp",instance="127.0.0.1:9464"}
+        values: "1 1 0 0 0 0 0"
+      - series: up{job="cdi-webapp",instance="127.0.0.1:9465"}
+        values: "1 0 1 1 1 1 1"            # down for one scrape only
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: CdiWebappInstanceDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: CdiWebappInstanceDown
+        exp_alerts:
+          - exp_labels: {severity: ticket, job: cdi-webapp, instance: "127.0.0.1:9464"}
+            exp_annotations:
+              summary: A web app instance is down.
+              description: One web app instance has not answered for 2 minutes; the balancer serves from the others, with less spare capacity.
+              runbook_url: docs/alerts.md#cdiwebappinstancedown
+
+  - name: webapp instance - all instances up stays quiet
+    interval: 1m
+    input_series:
+      - series: up{job="cdi-webapp",instance="127.0.0.1:9464"}
+        values: "1x10"
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: CdiWebappInstanceDown
+        exp_alerts: []
+
+  - name: orphaned jobs - not taken over for 2 minutes fires
+    interval: 1m
+    input_series:
+      - series: cdi_jobs_orphaned{job="cdi-webapp",instance="127.0.0.1:9464"}
+        values: "0 2 2 2 2 2"
+      - series: cdi_jobs_orphaned{job="cdi-webapp",instance="127.0.0.1:9465"}
+        values: "0 2 2 2 2 2"             # every instance reports the same web_job numbers
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: CdiJobsOrphaned
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: CdiJobsOrphaned
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations:
+              summary: Accepted jobs are not being processed.
+              description: Jobs whose runner died have not been taken over for 2 minutes; no job worker is alive to resume them.
+              runbook_url: docs/alerts.md#cdijobsorphaned
+
+  - name: orphaned jobs - taken over within a lease stays quiet
+    interval: 1m
+    input_series:
+      - series: cdi_jobs_orphaned{job="cdi-webapp"}
+        values: "0 1 0 0 1 0 0 0"          # a runner died, another took the job over at once
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: CdiJobsOrphaned
+        exp_alerts: []

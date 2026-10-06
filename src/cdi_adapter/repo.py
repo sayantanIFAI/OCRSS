@@ -14,7 +14,9 @@ from uuid import UUID
 
 from sqlalchemy import Connection, text
 
-PIPELINE_STAGES = ("ingest", "ocr", "classify", "extract", "terminology", "validate", "project")
+# "agent": the advisory medication agent after validation (migration 0010, backlog E12-S4)
+PIPELINE_STAGES = ("ingest", "ocr", "classify", "extract", "terminology", "validate", "project",
+                   "agent")  # fmt: skip
 DOCUMENT_STATUSES = (
     "received",
     "pages_rendered",
@@ -212,25 +214,48 @@ def set_page_count(conn: Connection, document_id: UUID | str, page_count: int) -
 # ------------------------------------------------------------------ OCR blocks (S3)
 
 
-def delete_ocr_blocks_for_document(conn: Connection, document_id: UUID | str) -> int:
+def supersede_ocr_observations(conn: Connection, document_id: UUID | str,
+                               run_id: UUID | str) -> int:  # fmt: skip
+    """A new OCR run of the document points its current observations at itself (backlog E4-S7):
+    raw evidence is never deleted, and ``ocr_block`` then shows only the new run's."""
     return conn.execute(
-        text("DELETE FROM ocr_block WHERE document_id = :d"), {"d": document_id}
-    ).rowcount
+        text("UPDATE ocr_observation SET superseded_by = :r, superseded_at = now() "
+             "WHERE document_id = :d AND superseded_by IS NULL"),
+        {"d": document_id, "r": run_id},
+    ).rowcount  # fmt: skip
+
+
+# recognizer metadata an observation may carry (E4-S7); none of it is a code or a concept
+OBSERVATION_EXTRA = ("crop_hash", "region_kind", "field_domain", "engine_version", "prompt_hash",
+                     "token_confidences")  # fmt: skip
 
 
 def insert_ocr_blocks(conn: Connection, rows: list[dict[str, Any]]) -> None:
-    """Bulk insert. Each row: document_id, page_id, block_type, text, bbox, polygon, ocr_conf,
-    reading_order, engine, pipeline_run_id."""
+    """Bulk insert of raw observations (``ocr_observation``, append-only). Each row: document_id,
+    page_id, block_type, text, bbox, polygon, ocr_conf, reading_order, engine, pipeline_run_id,
+    and optionally the ``OBSERVATION_EXTRA`` recognizer metadata."""
     if not rows:
         return
     conn.execute(
         text(
-            "INSERT INTO ocr_block (document_id, page_id, block_type, text, bbox, polygon, "
-            "  ocr_conf, reading_order, engine, pipeline_run_id) "
+            "INSERT INTO ocr_observation (document_id, page_id, block_type, raw_text, bbox, "
+            "  polygon, ocr_conf, reading_order, engine, pipeline_run_id, crop_hash, region_kind, "
+            "  field_domain, engine_version, prompt_hash, token_confidences) "
             "VALUES (:document_id, :page_id, :block_type, :text, :bbox, CAST(:polygon AS jsonb), "
-            "  :ocr_conf, :reading_order, :engine, :pipeline_run_id)"
+            "  :ocr_conf, :reading_order, :engine, :pipeline_run_id, :crop_hash, :region_kind, "
+            "  :field_domain, :engine_version, :prompt_hash, CAST(:token_confidences AS jsonb))"
         ),
-        [{**r, "polygon": json.dumps(r.get("polygon"))} for r in rows],
+        [
+            {
+                **{k: None for k in OBSERVATION_EXTRA},
+                **r,
+                "polygon": json.dumps(r.get("polygon")),
+                "token_confidences": (
+                    json.dumps(r["token_confidences"]) if r.get("token_confidences") else None
+                ),
+            }
+            for r in rows
+        ],
     )
 
 
@@ -243,6 +268,18 @@ def get_ocr_blocks(conn: Connection, document_id: UUID | str) -> list[dict[str, 
         {"d": document_id},
     ).mappings()
     return [dict(r) for r in rows]
+
+
+def document_shape(conn: Connection, document_id: UUID | str) -> dict[str, int]:
+    """Page and OCR-block counts: how "short" a document is for extract batching (E2-S8)."""
+    row = conn.execute(
+        text(
+            "SELECT (SELECT count(*) FROM document_page WHERE document_id = :d) AS pages, "
+            "       (SELECT count(*) FROM ocr_block WHERE document_id = :d) AS blocks"
+        ),
+        {"d": document_id},
+    ).one()
+    return {"pages": int(row.pages), "blocks": int(row.blocks)}
 
 
 def insert_classification(
@@ -399,6 +436,9 @@ def purge_document_facts(conn: Connection, document_id: UUID | str) -> int:
     """Re-extraction supersedes: clear the document's facts / extraction / encounter / aliases
     (+ its review tasks and projections, which were derived from those facts)."""
     d = {"d": str(document_id)}
+    from cdi_adapter.training.calibration import preserve_document_decisions
+
+    preserve_document_decisions(conn, document_id)
     n = conn.execute(text("DELETE FROM clinical_fact WHERE :d = ANY(source_doc_ids)"), d).rowcount
     for sql in (
         "DELETE FROM review_task WHERE document_id = :d",
@@ -437,3 +477,65 @@ def set_document_status(
         ),
         {"id": document_id, "status": status, "error": json.dumps(error) if error else None},
     )
+
+
+# ------------------------------------------------------------------ dead letters (E9-S3)
+
+DEAD_LETTER_KINDS = ("web_job", "document", "task")
+
+
+def write_dead_letter(
+    conn: Connection,
+    *,
+    kind: str,
+    ref: str,
+    attempts: int,
+    error: str | None = None,
+    queue: str | None = None,
+    task: str | None = None,
+    detail: dict[str, Any] | None = None,
+) -> int:
+    """Record work that stopped being retried (migration 0022), so it leaves the queue instead of
+    blocking it. One row per ``(kind, ref)``: a later failure of the same job or document updates
+    that row - its ``first_at`` keeps saying when the trouble started - and clears any earlier
+    replay. Returns the row id."""
+    if kind not in DEAD_LETTER_KINDS:
+        raise ValueError(f"dead-letter kind must be one of {DEAD_LETTER_KINDS}, got {kind!r}")
+    params = {"k": kind, "r": str(ref), "q": queue, "t": task, "n": attempts, "e": error,
+              "d": _json(detail)}  # fmt: skip
+    return conn.execute(
+        text(
+            "INSERT INTO dead_letter (kind, ref, queue, task, attempts, error, detail) "
+            "VALUES (:k, :r, :q, :t, :n, :e, CAST(:d AS jsonb)) "
+            "ON CONFLICT (kind, ref) DO UPDATE SET attempts = EXCLUDED.attempts, "
+            "error = EXCLUDED.error, queue = EXCLUDED.queue, task = EXCLUDED.task, "
+            "detail = EXCLUDED.detail, at = now(), replayed_at = NULL, replayed_by = NULL "
+            "RETURNING id"
+        ),
+        params,
+    ).scalar_one()
+
+
+def dead_letters(conn: Connection, *, kind: str | None = None, open_only: bool = True,
+                 limit: int = 100) -> list[dict[str, Any]]:  # fmt: skip
+    """What is in the dead-letter queue, newest first; ``open_only`` leaves out the replayed."""
+    rows = conn.execute(
+        text(
+            "SELECT * FROM dead_letter WHERE (CAST(:k AS text) IS NULL OR kind = :k) "
+            "AND (NOT :o OR replayed_at IS NULL) ORDER BY at DESC LIMIT :n"
+        ),
+        {"k": kind, "o": open_only, "n": limit},
+    ).mappings()
+    return [dict(r) for r in rows]
+
+
+def mark_replayed(conn: Connection, *, kind: str, ref: str, actor: str) -> bool:
+    """Say a dead letter has been sent back through (the operator decided to try it again)."""
+    n = conn.execute(
+        text(
+            "UPDATE dead_letter SET replayed_at = now(), replayed_by = :a "
+            "WHERE kind = :k AND ref = :r AND replayed_at IS NULL"
+        ),
+        {"k": kind, "r": str(ref), "a": actor},
+    ).rowcount
+    return n == 1

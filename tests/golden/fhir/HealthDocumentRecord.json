@@ -1,0 +1,319 @@
+{
+  "entry": [
+    {
+      "fullUrl": "urn:uuid:64015136-015d-55c0-a910-c964f4b68ffe",
+      "resource": {
+        "author": [
+          {
+            "reference": "urn:uuid:b0cef71d-559f-5327-b601-340bff3fdfb4"
+          }
+        ],
+        "custodian": {
+          "reference": "urn:uuid:66c0d3a9-c723-5c30-9792-4fe5880edc7e"
+        },
+        "date": "2026-08-12T10:00:00+00:00",
+        "encounter": {
+          "reference": "urn:uuid:967f3517-c432-5f5e-b282-1558d4bb3600"
+        },
+        "id": "64015136-015d-55c0-a910-c964f4b68ffe",
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/HealthDocumentRecord"
+          ]
+        },
+        "resourceType": "Composition",
+        "section": [
+          {
+            "code": {
+              "coding": [
+                {
+                  "code": "419891008",
+                  "display": "Record artifact",
+                  "system": "http://snomed.info/sct"
+                }
+              ]
+            },
+            "entry": [
+              {
+                "reference": "urn:uuid:6d9c3a5a-0b53-5286-9fd4-fdbdf4e9901f",
+                "type": "DocumentReference"
+              }
+            ],
+            "text": {
+              "div": "<div xmlns=\"http://www.w3.org/1999/xhtml\"><ul><li>Review in OPD after 2 weeks with reports</li></ul></div>",
+              "status": "generated"
+            },
+            "title": "Record artifact"
+          }
+        ],
+        "status": "final",
+        "subject": {
+          "reference": "urn:uuid:3b373192-2a50-5879-b4f4-d35451854e76"
+        },
+        "title": "Record artifact",
+        "type": {
+          "coding": [
+            {
+              "code": "419891008",
+              "display": "Record artifact",
+              "system": "http://snomed.info/sct"
+            }
+          ],
+          "text": "Record artifact"
+        }
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:3b373192-2a50-5879-b4f4-d35451854e76",
+      "resource": {
+        "birthDate": "1978-03-14",
+        "gender": "female",
+        "id": "3b373192-2a50-5879-b4f4-d35451854e76",
+        "identifier": [
+          {
+            "system": "https://careflow.clinic/mpi",
+            "type": {
+              "coding": [
+                {
+                  "code": "MR",
+                  "display": "Medical record number",
+                  "system": "http://terminology.hl7.org/CodeSystem/v2-0203"
+                }
+              ],
+              "text": "Medical record number"
+            },
+            "use": "usual",
+            "value": "CFP-2026-000001"
+          },
+          {
+            "system": "https://healthid.ndhm.gov.in",
+            "type": {
+              "coding": [
+                {
+                  "code": "ABHA",
+                  "display": "Ayushman Bharat Health Account (ABHA) ID",
+                  "system": "https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-identifier-type-code"
+                }
+              ],
+              "text": "ABHA number"
+            },
+            "use": "official",
+            "value": "91-1234-5678-9012"
+          },
+          {
+            "system": "https://healthid.ndhm.gov.in/address",
+            "type": {
+              "coding": [
+                {
+                  "code": "ABHA",
+                  "display": "Ayushman Bharat Health Account (ABHA) ID",
+                  "system": "https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-identifier-type-code"
+                }
+              ],
+              "text": "ABHA address"
+            },
+            "value": "anjali.das@abdm"
+          },
+          {
+            "system": "urn:cdi:legacy-mrn",
+            "type": {
+              "coding": [
+                {
+                  "code": "MR",
+                  "display": "Medical record number",
+                  "system": "http://terminology.hl7.org/CodeSystem/v2-0203"
+                }
+              ],
+              "text": "Legacy MRN"
+            },
+            "value": "LEG-7"
+          }
+        ],
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/Patient"
+          ]
+        },
+        "name": [
+          {
+            "text": "Anjali Das"
+          }
+        ],
+        "resourceType": "Patient"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:66c0d3a9-c723-5c30-9792-4fe5880edc7e",
+      "resource": {
+        "id": "66c0d3a9-c723-5c30-9792-4fe5880edc7e",
+        "identifier": [
+          {
+            "system": "https://careflow.clinic/facility",
+            "type": {
+              "coding": [
+                {
+                  "code": "PRN",
+                  "display": "Provider number",
+                  "system": "http://terminology.hl7.org/CodeSystem/v2-0203"
+                }
+              ],
+              "text": "Facility ID"
+            },
+            "value": "CAREFLOW-POLYCLINIC-1"
+          }
+        ],
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/Organization"
+          ]
+        },
+        "name": "CareFlow Polyclinic",
+        "resourceType": "Organization"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:b0cef71d-559f-5327-b601-340bff3fdfb4",
+      "resource": {
+        "id": "b0cef71d-559f-5327-b601-340bff3fdfb4",
+        "identifier": [
+          {
+            "system": "https://careflow.clinic/practitioner",
+            "type": {
+              "coding": [
+                {
+                  "code": "OIN",
+                  "display": "Other identifier",
+                  "system": "https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-identifier-type-code"
+                }
+              ],
+              "text": "CareFlow practitioner id"
+            },
+            "value": "b0cef71d-559f-5327-b601-340bff3fdfb4"
+          }
+        ],
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/Practitioner"
+          ]
+        },
+        "name": [
+          {
+            "text": "Attending clinician"
+          }
+        ],
+        "resourceType": "Practitioner"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:967f3517-c432-5f5e-b282-1558d4bb3600",
+      "resource": {
+        "class": {
+          "code": "AMB",
+          "display": "ambulatory",
+          "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode"
+        },
+        "id": "967f3517-c432-5f5e-b282-1558d4bb3600",
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/Encounter"
+          ]
+        },
+        "period": {
+          "start": "2026-08-12T09:30:00+00:00"
+        },
+        "resourceType": "Encounter",
+        "status": "finished",
+        "subject": {
+          "reference": "urn:uuid:3b373192-2a50-5879-b4f4-d35451854e76"
+        }
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:6d9c3a5a-0b53-5286-9fd4-fdbdf4e9901f",
+      "resource": {
+        "content": [
+          {
+            "attachment": {
+              "contentType": "image/png",
+              "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4//8/AAX+Av6n1qTFAAAAAElFTkSuQmCC",
+              "title": "advice_slip_golden.png"
+            }
+          }
+        ],
+        "id": "6d9c3a5a-0b53-5286-9fd4-fdbdf4e9901f",
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/DocumentReference"
+          ]
+        },
+        "resourceType": "DocumentReference",
+        "status": "current",
+        "subject": {
+          "reference": "urn:uuid:3b373192-2a50-5879-b4f4-d35451854e76"
+        },
+        "type": {
+          "text": "Scanned source document"
+        }
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:54dd883a-0570-5029-b877-de5fdfd0bc69",
+      "resource": {
+        "agent": [
+          {
+            "onBehalfOf": {
+              "reference": "urn:uuid:66c0d3a9-c723-5c30-9792-4fe5880edc7e"
+            },
+            "type": {
+              "text": "assembler"
+            },
+            "who": {
+              "reference": "urn:uuid:66c0d3a9-c723-5c30-9792-4fe5880edc7e"
+            }
+          }
+        ],
+        "entity": [
+          {
+            "role": "source",
+            "what": {
+              "reference": "urn:uuid:6d9c3a5a-0b53-5286-9fd4-fdbdf4e9901f"
+            }
+          }
+        ],
+        "id": "54dd883a-0570-5029-b877-de5fdfd0bc69",
+        "meta": {
+          "profile": [
+            "http://hl7.org/fhir/StructureDefinition/Provenance"
+          ]
+        },
+        "reason": [
+          {
+            "text": "Generated by CDI-Adapter from the scan; model stack: extractor=golden-fixture"
+          }
+        ],
+        "recorded": "2026-08-12T10:00:00+00:00",
+        "resourceType": "Provenance",
+        "target": [
+          {
+            "reference": "urn:uuid:6d9c3a5a-0b53-5286-9fd4-fdbdf4e9901f"
+          }
+        ]
+      }
+    }
+  ],
+  "id": "4663ecbd-63d1-54a0-a2c6-0fccc964cff7",
+  "identifier": {
+    "system": "urn:cdi:bundle",
+    "value": "457daf63-64bd-50b9-babb-15f4d40069ce"
+  },
+  "meta": {
+    "lastUpdated": "2026-08-12T10:00:00+00:00",
+    "profile": [
+      "https://nrces.in/ndhm/fhir/r4/StructureDefinition/DocumentBundle"
+    ],
+    "versionId": "1"
+  },
+  "resourceType": "Bundle",
+  "timestamp": "2026-08-12T10:00:00+00:00",
+  "type": "document"
+}

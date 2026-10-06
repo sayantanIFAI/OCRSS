@@ -12,6 +12,7 @@
     "vitals": {"$ref": "cdi:common.defs#/$defs/vital_list"},
     "allergies": {"$ref": "cdi:common.defs#/$defs/allergy_list"},
     "advice": {"$ref": "cdi:common.defs#/$defs/text_list"},
+    "investigations_advised": {"$ref": "cdi:common.defs#/$defs/text_list", "description": "tests the doctor advises or orders (Investigations / Adv / Ix), one per test, as written"},
     "confidence": {"$ref": "cdi:common.defs#/$defs/confidence"}
   },
   "required": ["medications", "confidence"],

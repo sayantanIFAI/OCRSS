@@ -14,13 +14,23 @@
 
 Failure -> ``pipeline_run`` failed, ``source_document.status='error'`` with the error detail
 persisted, and the exception re-raised.
+
+Safe to repeat (backlog E10-S9: a job resumed after its runner died ingests its files again).
+One ingest per SHA-256 at a time (a transaction-scoped advisory lock, released by PostgreSQL
+if the process dies). So a document found **without pages** was left by an ingest that died
+or failed while rendering: its pages are rendered again instead of reusing a document that
+has none.
 """
 
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from uuid import UUID
+
+from sqlalchemy import text
 
 from cdi_adapter import repo
 from cdi_adapter.config import get_settings
@@ -58,12 +68,29 @@ def ingest_bytes(
     sha = hashlib.sha256(raw).hexdigest()
     mime = mime_type or pages.sniff_mime(raw, filename)
     ext = pages.MIME_EXT.get(mime) or filename.rsplit(".", 1)[-1].lower()
+    with _one_ingest_per_sha(sha):
+        return _ingest(raw, filename, mime, ext, sha, store, source_channel=source_channel,
+                       legacy_ref=legacy_ref, legacy_patient_ref=legacy_patient_ref,
+                       patient_id=patient_id, actor=actor)  # fmt: skip
 
+
+@contextmanager
+def _one_ingest_per_sha(sha: str) -> Iterator[None]:
+    with session_scope() as conn:
+        conn.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:s, 0))"), {"s": sha})
+        yield
+
+
+def _ingest(raw: bytes, filename: str, mime: str, ext: str, sha: str, store: ObjectStore, *,
+            source_channel: str, legacy_ref: str | None, legacy_patient_ref: str | None,
+            patient_id: UUID | str | None, actor: str) -> IngestResult:  # fmt: skip
     # 1. dedupe
     with session_scope() as conn:
         existing = repo.find_document_by_sha(conn, sha)
-        if existing:
+        if existing and existing["page_count"] is not None:
             return _reuse(conn, existing, actor)
+    if existing:  # its earlier ingest stopped before the pages were stored: render them now
+        return _rerender(existing, raw, mime, store, actor)
 
     # 2. store the original (idempotent: same key for the same bytes)
     key = original_key(sha, ext)
@@ -99,6 +126,12 @@ def ingest_bytes(
         # 4. open the run in the same transaction as the row it belongs to
         run_id = repo.start_run(conn, document_id=doc_id, stage="ingest", model_name="pymupdf")
 
+    return _render_finish(doc_id, sha, raw, mime, store, run_id, actor, len(raw))
+
+
+def _render_finish(doc_id: UUID, sha: str, raw: bytes, mime: str, store: ObjectStore,
+                   run_id: UUID, actor: str, size: int, *,
+                   reused: bool = False) -> IngestResult:  # fmt: skip
     try:
         page_count = _render_and_store(doc_id, sha, raw, mime, store)
     except Exception as exc:
@@ -122,7 +155,7 @@ def ingest_bytes(
     with session_scope() as conn:
         repo.set_page_count(conn, doc_id, page_count)
         repo.set_document_status(conn, doc_id, "pages_rendered")
-        repo.finish_run(conn, run_id, metrics={"pages": page_count, "bytes": len(raw)})
+        repo.finish_run(conn, run_id, metrics={"pages": page_count, "bytes": size})
         repo.write_audit(
             conn,
             actor=actor,
@@ -131,8 +164,20 @@ def ingest_bytes(
             entity_id=doc_id,
             detail={"status": "pages_rendered", "pages": page_count},
         )
-    log.info("ingested", document_id=str(doc_id), pages=page_count, filename=filename)
-    return IngestResult(doc_id, sha, False, page_count)
+    log.info("ingested", document_id=str(doc_id), pages=page_count)
+    return IngestResult(doc_id, sha, reused, page_count)
+
+
+def _rerender(existing: dict, raw: bytes, mime: str, store: ObjectStore,
+              actor: str) -> IngestResult:  # fmt: skip
+    doc_id, sha = existing["id"], existing["sha256"]
+    log.warning("ingest_rerender", document_id=str(doc_id), status=existing["status"])
+    store.put_bytes(existing["storage_key"], raw, mime)
+    with session_scope() as conn:
+        conn.execute(text("DELETE FROM document_page WHERE document_id = :d"), {"d": doc_id})
+        repo.set_document_status(conn, doc_id, "received")
+        run_id = repo.start_run(conn, document_id=doc_id, stage="ingest", model_name="pymupdf")
+    return _render_finish(doc_id, sha, raw, mime, store, run_id, actor, len(raw), reused=True)
 
 
 def _reuse(conn, existing: dict, actor: str) -> IngestResult:
