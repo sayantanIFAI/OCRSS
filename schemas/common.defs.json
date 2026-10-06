@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cdi:common.defs",
+  "title": "Shared definitions for CDI extraction schemas (relaxed v3, ARCHITECTURE §5 S4)",
+  "$defs": {
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "evidence": {
+      "description": "OCR block ids (b1, b2, ...) that support the value. Optional everywhere.",
+      "type": "array",
+      "items": {"type": "string"},
+      "minItems": 0
+    },
+    "date_text": {"type": ["string", "null"]},
+    "quantity": {
+      "description": "A {value, unit, evidence} object, or a bare number / string such as \"500 mg\" or \"138/86\".",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "value": {"type": ["number", "string", "null"]},
+            "unit": {"type": ["string", "null"]},
+            "evidence": {"$ref": "#/$defs/evidence"}
+          },
+          "additionalProperties": true
+        },
+        {"type": ["number", "string", "null"]}
+      ]
+    },
+    "coded_text": {
+      "description": "A {text|code|display|name} object or a plain string.",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "text": {"type": ["string", "null"]},
+            "system": {"type": ["string", "null"]},
+            "code": {"type": ["string", "null"]},
+            "display": {"type": ["string", "null"]},
+            "name": {"type": ["string", "null"]},
+            "evidence": {"$ref": "#/$defs/evidence"},
+            "confidence": {"$ref": "#/$defs/confidence"}
+          },
+          "additionalProperties": true
+        },
+        {"type": "string"}
+      ]
+    },
+    "coded_list": {"type": "array", "items": {"$ref": "#/$defs/coded_text"}},
+    "patient": {
+      "description": "Demographics as printed. Not root-required: handwritten notes often have no legible name.",
+      "type": "object",
+      "properties": {
+        "name": {"type": ["string", "null"]},
+        "sex": {"type": ["string", "null"], "description": "free text, e.g. \"Male\"; parse_sex maps it downstream"},
+        "age_text": {"type": ["string", "null"]},
+        "dob": {"$ref": "#/$defs/date_text"},
+        "mrn": {"type": ["string", "null"]},
+        "abha": {"type": ["string", "null"]},
+        "evidence": {"$ref": "#/$defs/evidence"}
+      },
+      "additionalProperties": true
+    },
+    "vital": {
+      "type": "object",
+      "properties": {
+        "name": {"type": "string"},
+        "value": {"$ref": "#/$defs/quantity"},
+        "unit": {"type": ["string", "null"]},
+        "evidence": {"$ref": "#/$defs/evidence"},
+        "confidence": {"$ref": "#/$defs/confidence"}
+      },
+      "required": ["name", "value", "confidence"],
+      "additionalProperties": true
+    },
+    "vital_list": {"type": "array", "items": {"$ref": "#/$defs/vital"}},
+    "medication": {
+      "type": "object",
+      "properties": {
+        "drug_name": {"type": "string"},
+        "strength": {"$ref": "#/$defs/quantity"},
+        "dose": {"$ref": "#/$defs/quantity"},
+        "frequency": {"type": ["string", "null"]},
+        "route": {"type": ["string", "null"]},
+        "duration": {"type": ["string", "null"]},
+        "instructions": {"type": ["string", "null"]},
+        "evidence": {"$ref": "#/$defs/evidence"},
+        "confidence": {"$ref": "#/$defs/confidence"}
+      },
+      "required": ["drug_name", "confidence"],
+      "additionalProperties": true
+    },
+    "medication_list": {"type": "array", "items": {"$ref": "#/$defs/medication"}},
+    "lab_test": {
+      "type": "object",
+      "properties": {
+        "name": {"type": "string"},
+        "value": {"$ref": "#/$defs/quantity"},
+        "unit": {"type": ["string", "null"]},
+        "ref_range": {"type": ["string", "null"]},
+        "flag": {"type": ["string", "null"]},
+        "evidence": {"$ref": "#/$defs/evidence"},
+        "confidence": {"$ref": "#/$defs/confidence"}
+      },
+      "required": ["name", "value", "confidence"],
+      "additionalProperties": true
+    },
+    "lab_list": {"type": "array", "items": {"$ref": "#/$defs/lab_test"}},
+    "allergy": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "substance": {"type": "string"},
+            "reaction": {"type": ["string", "null"]},
+            "evidence": {"$ref": "#/$defs/evidence"},
+            "confidence": {"$ref": "#/$defs/confidence"}
+          },
+          "required": ["substance"],
+          "additionalProperties": true
+        },
+        {"type": "string"}
+      ]
+    },
+    "allergy_list": {"type": "array", "items": {"$ref": "#/$defs/allergy"}},
+    "procedure": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "name": {"type": "string"},
+            "date": {"$ref": "#/$defs/date_text"},
+            "findings": {"type": ["string", "null"]},
+            "evidence": {"$ref": "#/$defs/evidence"},
+            "confidence": {"$ref": "#/$defs/confidence"}
+          },
+          "required": ["name"],
+          "additionalProperties": true
+        },
+        {"type": "string"}
+      ]
+    },
+    "procedure_list": {"type": "array", "items": {"$ref": "#/$defs/procedure"}},
+    "text_list": {"type": "array", "items": {"$ref": "#/$defs/coded_text"}}
+  }
+}

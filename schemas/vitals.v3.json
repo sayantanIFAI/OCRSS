@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cdi:vitals.v3",
+  "title": "Vitals sheet extraction (v3, relaxed)",
+  "type": "object",
+  "properties": {
+    "patient": {"$ref": "cdi:common.defs#/$defs/patient"},
+    "recorded_at": {"$ref": "cdi:common.defs#/$defs/date_text"},
+    "vitals": {"$ref": "cdi:common.defs#/$defs/vital_list"},
+    "allergies": {"$ref": "cdi:common.defs#/$defs/allergy_list"},
+    "confidence": {"$ref": "cdi:common.defs#/$defs/confidence"}
+  },
+  "required": ["vitals", "confidence"],
+  "additionalProperties": false
+}

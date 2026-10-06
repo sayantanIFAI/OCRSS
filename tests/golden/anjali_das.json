@@ -1,0 +1,19 @@
+{
+  "_about": "Golden path, backlog E1-S6: the ARCHITECTURE §8.2 'Anjali Das' 3-document example (scripts/make_sample_docs.py). Checked by scripts/golden_path.py. 'stub' is what the deterministic stub backend must produce (CI). 'real_vlm' is the §8.2 recorded run of the real 7B model (nightly on the pod). The vitals sheet differs on purpose: the stub follows §5 S4 (every vital with a number is emitted: pulse, respiratory rate, temperature, SpO2, weight, height + the Penicillin allergy = 7 facts); the §8.2 run of the 7B model extracted only the allergy, which §13 records as its known vitals weak spot. Counts are for a FRESH database (golden_path.py --fresh-db): the Patient and Organization are attributed to the first document that creates them, as in §8.2's own 15/12/8 split. Change a number here only with a reason in the infra backlog change log.",
+  "stub": {
+    "documents": {
+      "prescription_00": {"doc_type": "prescription", "facts": 9, "provenance": 9, "resources": 14, "bundles": 1, "artifact_type": "PrescriptionRecord", "status": "ready_to_share", "structural_errors": 0},
+      "lab_report_01": {"doc_type": "lab_report", "facts": 5, "provenance": 5, "resources": 11, "bundles": 1, "artifact_type": "DiagnosticReportRecord", "status": "ready_to_share", "structural_errors": 0},
+      "vitals_sheet_02": {"doc_type": "vitals_sheet", "facts": 7, "provenance": 7, "resources": 12, "bundles": 1, "artifact_type": "WellnessRecord", "status": "ready_to_share", "structural_errors": 0}
+    },
+    "totals": {"facts": 21, "provenance": 21, "resources": 37, "bundles": 3, "structural_errors": 0}
+  },
+  "real_vlm": {
+    "documents": {
+      "prescription_00": {"doc_type": "prescription", "facts": 9, "provenance": 9, "resources": 15, "bundles": 1, "artifact_type": "PrescriptionRecord", "structural_errors": 0},
+      "lab_report_01": {"doc_type": "lab_report", "facts": 5, "provenance": 5, "resources": 12, "bundles": 1, "artifact_type": "DiagnosticReportRecord", "structural_errors": 0},
+      "vitals_sheet_02": {"doc_type": "vitals_sheet", "facts": 1, "provenance": 1, "resources": 8, "bundles": 1, "artifact_type": "WellnessRecord", "structural_errors": 0}
+    },
+    "totals": {"facts": 15, "provenance": 15, "resources": 35, "bundles": 3, "structural_errors": 0}
+  }
+}

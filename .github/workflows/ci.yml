@@ -1,0 +1,78 @@
+# Backlog E1-S1: lint + unit tests on every push and pull request; a red run blocks the merge once
+# branch protection requires the "ci / unit-gate" check (see docs/ci.md). Same gate as
+# `python scripts/ci.py` locally. No GPU and no infra: the stub VLM backend (TECH_STACK §8).
+name: ci
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: python -m pip install -e ".[dev,ocr]"
+      - name: Lint, format, types, unit tests
+        run: python scripts/ci.py
+
+  # Backlog E1-S2. Native processes, no containers (owner decision "no docker"; ARCHITECTURE §3.3):
+  # PostgreSQL 16 from apt and MinIO built from the same pinned tag as infra/runpod/bootstrap_pod.sh.
+  integration-gate:
+    needs: unit-gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      GO_VERSION: "1.27.1"
+      MINIO_TAG: RELEASE.2025-10-15T17-29-55Z
+      CDI_DATABASE_URL: postgresql+psycopg://cdi:cdi@127.0.0.1:5432/cdi
+      CDI_TEST_ADMIN_URL: postgresql+psycopg://cdi:cdi@127.0.0.1:5432/postgres
+      CDI_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+      CDI_S3_ENDPOINT_URL: http://127.0.0.1:9000
+      CDI_S3_ACCESS_KEY: minioadmin
+      CDI_S3_SECRET_KEY: minioadmin
+      CDI_S3_BUCKET: cdi-ci
+      CDI_MLSERVE_BACKEND: stub
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: PostgreSQL 16 (native)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-16 postgresql-client-16
+          sudo systemctl start postgresql
+          sudo -u postgres psql -c "CREATE ROLE cdi LOGIN SUPERUSER PASSWORD 'cdi'"
+          sudo -u postgres psql -c "CREATE DATABASE cdi OWNER cdi"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - name: MinIO (native, built from the pinned release tag)
+        run: |
+          git clone --depth 1 --branch "$MINIO_TAG" https://github.com/minio/minio.git /tmp/minio-src
+          (cd /tmp/minio-src && GOFLAGS=-trimpath go build -o "$RUNNER_TEMP/minio" .)
+          mkdir -p "$RUNNER_TEMP/minio-data"
+          MINIO_ROOT_USER=minioadmin MINIO_ROOT_PASSWORD=minioadmin \
+            nohup "$RUNNER_TEMP/minio" server "$RUNNER_TEMP/minio-data" \
+            --address 127.0.0.1:9000 >"$RUNNER_TEMP/minio.log" 2>&1 &
+          for _ in $(seq 60); do curl -fsS http://127.0.0.1:9000/minio/health/live && break; sleep 1; done
+          curl -fsS http://127.0.0.1:9000/minio/health/live
+      - name: Install
+        run: python -m pip install -e ".[dev,ocr]"
+      - name: Migrate
+        run: python -m alembic upgrade head
+      - name: Integration tests + pipeline_run audit
+        run: python scripts/ci.py --suite integration

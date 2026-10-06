@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cdi:radiology.v3",
+  "title": "Radiology / imaging report extraction (v3, relaxed)",
+  "type": "object",
+  "properties": {
+    "patient": {"$ref": "cdi:common.defs#/$defs/patient"},
+    "study_date": {"$ref": "cdi:common.defs#/$defs/date_text"},
+    "modality": {"type": ["string", "null"]},
+    "study": {"type": ["string", "null"]},
+    "procedure": {"$ref": "cdi:common.defs#/$defs/procedure"},
+    "findings_list": {"$ref": "cdi:common.defs#/$defs/coded_list"},
+    "impression_concepts": {"$ref": "cdi:common.defs#/$defs/coded_list"},
+    "diagnoses": {"$ref": "cdi:common.defs#/$defs/coded_list"},
+    "advice": {"$ref": "cdi:common.defs#/$defs/text_list"},
+    "confidence": {"$ref": "cdi:common.defs#/$defs/confidence"}
+  },
+  "required": ["findings_list", "confidence"],
+  "additionalProperties": false
+}

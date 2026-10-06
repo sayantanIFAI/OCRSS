@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cdi:classification.v1",
+  "title": "Document classification (S2 VLM fallback)",
+  "type": "object",
+  "properties": {
+    "doc_type": {
+      "type": "string",
+      "enum": [
+        "prescription", "lab_report", "vitals_sheet", "opd_note", "referral",
+        "discharge_summary", "operative_note", "radiology", "advice_slip",
+        "administrative", "other"
+      ]
+    },
+    "specialty": {"type": ["string", "null"]},
+    "is_handwritten": {"type": "boolean"},
+    "languages": {"type": "array", "items": {"type": "string"}},
+    "page_spans": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "doc_type": {"type": "string"},
+          "start_page": {"type": "integer", "minimum": 1},
+          "end_page": {"type": "integer", "minimum": 1}
+        },
+        "required": ["start_page", "end_page"],
+        "additionalProperties": true
+      }
+    },
+    "confidence": {"$ref": "cdi:common.defs#/$defs/confidence"}
+  },
+  "required": ["doc_type", "confidence"],
+  "additionalProperties": false
+}

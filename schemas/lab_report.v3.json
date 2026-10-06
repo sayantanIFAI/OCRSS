@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cdi:lab_report.v3",
+  "title": "Laboratory report extraction (v3, relaxed)",
+  "type": "object",
+  "properties": {
+    "patient": {"$ref": "cdi:common.defs#/$defs/patient"},
+    "reported_at": {"$ref": "cdi:common.defs#/$defs/date_text"},
+    "lab_name": {"type": ["string", "null"]},
+    "panel": {"type": ["string", "null"]},
+    "tests": {"$ref": "cdi:common.defs#/$defs/lab_list"},
+    "confidence": {"$ref": "cdi:common.defs#/$defs/confidence"}
+  },
+  "required": ["tests", "confidence"],
+  "additionalProperties": false
+}

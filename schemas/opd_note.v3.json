@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cdi:opd_note.v3",
+  "title": "OPD consultation note extraction (v3, relaxed; also used for referral)",
+  "type": "object",
+  "properties": {
+    "patient": {"$ref": "cdi:common.defs#/$defs/patient"},
+    "encounter_date": {"$ref": "cdi:common.defs#/$defs/date_text"},
+    "clinician": {"type": ["string", "null"]},
+    "chief_complaints": {"$ref": "cdi:common.defs#/$defs/coded_list"},
+    "symptoms": {"$ref": "cdi:common.defs#/$defs/coded_list"},
+    "findings": {"$ref": "cdi:common.defs#/$defs/coded_list"},
+    "diagnoses": {"$ref": "cdi:common.defs#/$defs/coded_list"},
+    "vitals": {"$ref": "cdi:common.defs#/$defs/vital_list"},
+    "medications": {"$ref": "cdi:common.defs#/$defs/medication_list"},
+    "allergies": {"$ref": "cdi:common.defs#/$defs/allergy_list"},
+    "advice": {"$ref": "cdi:common.defs#/$defs/text_list"},
+    "referral_to": {"type": ["string", "null"]},
+    "confidence": {"$ref": "cdi:common.defs#/$defs/confidence"}
+  },
+  "required": ["confidence"],
+  "additionalProperties": false
+}
