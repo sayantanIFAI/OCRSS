@@ -178,7 +178,7 @@ def test_repo_audit_run_and_status_round_trip(engine):
                 "VALUES (repeat('a', 64), 'x.pdf', 'application/pdf', 10, 'k') RETURNING id"
             )
         ).scalar_one()
-        run = repo.start_run(c, document_id=doc_id, stage="ingest", model_name="pymupdf")
+        run = repo.start_run(c, document_id=doc_id, stage="ingest", model_name="pypdfium2")
         repo.finish_run(c, run, metrics={"pages": 2})
         bad = repo.start_run(c, document_id=doc_id, stage="ocr")
         repo.fail_run(c, bad, error="boom")

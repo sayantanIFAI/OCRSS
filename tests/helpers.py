@@ -4,19 +4,14 @@ from __future__ import annotations
 
 import io
 
-import pymupdf
 from PIL import Image, ImageDraw
+
+from cdi_adapter.ingest.pdfgen import make_text_pdf
 
 
 def make_pdf(lines_per_page: list[list[str]]) -> bytes:
-    doc = pymupdf.open()
-    for lines in lines_per_page:
-        page = doc.new_page(width=595, height=842)  # A4 points
-        for i, line in enumerate(lines):
-            page.insert_text((60, 80 + 22 * i), line, fontsize=12)
-    out = doc.tobytes()
-    doc.close()
-    return out
+    """A4 text PDF, one page per entry (hand-written PDF: no PDF library involved)."""
+    return make_text_pdf(lines_per_page)
 
 
 def lined_page(size=(1200, 1600), n=30) -> Image.Image:

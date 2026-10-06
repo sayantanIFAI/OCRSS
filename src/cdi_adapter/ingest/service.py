@@ -6,7 +6,7 @@
 3. Insert ``source_document`` (status ``received``), audit ``create``. Race-safe: a concurrent
    duplicate reuses the existing row.
 4. Open ``pipeline_run(stage='ingest')``.
-5. ``render_pages`` (PyMuPDF / Pillow / multi-frame TIFF).
+5. ``render_pages`` (pypdfium2 / Pillow / multi-frame TIFF).
 6. ``normalize_image`` per page (deskew, denoise, CLAHE); ``preproc`` records what was done.
 7. Store ``pages/NNNN.png`` + ``pages/NNNN.thumb.png``; insert ``document_page``.
 8. ``status='pages_rendered'``, finish the run, audit. (Queueing the next stage is the caller's job:
@@ -124,7 +124,7 @@ def _ingest(raw: bytes, filename: str, mime: str, ext: str, sha: str, store: Obj
             detail={"filename": filename, "sha256": sha, "channel": source_channel},
         )
         # 4. open the run in the same transaction as the row it belongs to
-        run_id = repo.start_run(conn, document_id=doc_id, stage="ingest", model_name="pymupdf")
+        run_id = repo.start_run(conn, document_id=doc_id, stage="ingest", model_name="pypdfium2")
 
     return _render_finish(doc_id, sha, raw, mime, store, run_id, actor, len(raw))
 
@@ -176,7 +176,7 @@ def _rerender(existing: dict, raw: bytes, mime: str, store: ObjectStore,
     with session_scope() as conn:
         conn.execute(text("DELETE FROM document_page WHERE document_id = :d"), {"d": doc_id})
         repo.set_document_status(conn, doc_id, "received")
-        run_id = repo.start_run(conn, document_id=doc_id, stage="ingest", model_name="pymupdf")
+        run_id = repo.start_run(conn, document_id=doc_id, stage="ingest", model_name="pypdfium2")
     return _render_finish(doc_id, sha, raw, mime, store, run_id, actor, len(raw), reused=True)
 
 

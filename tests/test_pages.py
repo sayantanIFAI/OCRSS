@@ -72,7 +72,7 @@ def test_render_rejects_unknown_mime():
 
 
 def test_render_corrupt_pdf_raises():
-    with pytest.raises(Exception):  # noqa: B017 - PyMuPDF raises its own error type
+    with pytest.raises(pages.PdfReadError):
         pages.render_pages(b"%PDF-1.4 this is not really a pdf", "application/pdf")
 
 
