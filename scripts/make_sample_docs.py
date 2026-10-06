@@ -12,8 +12,10 @@ import io
 import random
 from pathlib import Path
 
-import pymupdf
 from PIL import Image, ImageFilter
+
+from cdi_adapter.ingest.pages import render_pages
+from cdi_adapter.ingest.pdfgen import make_text_pdf
 
 DOCS: dict[str, list[str]] = {
     "prescription_00": [
@@ -57,20 +59,13 @@ DOCS: dict[str, list[str]] = {
 
 
 def text_pdf(lines: list[str]) -> bytes:
-    doc = pymupdf.open()
-    page = doc.new_page(width=595, height=842)
-    for i, line in enumerate(lines):
-        page.insert_text((56, 80 + 26 * i), line, fontsize=13)
-    out = doc.tobytes()
-    doc.close()
-    return out
+    return make_text_pdf([lines], x=56, y_top=80, leading=26, font_size=13)
 
 
 def scanify(pdf: bytes, seed: int, dpi: int = 150) -> bytes:
     """Rasterise, rotate slightly, add speckle + blur: a PNG that looks like a flatbed scan."""
     rnd = random.Random(seed)
-    with pymupdf.open(stream=pdf, filetype="pdf") as d:
-        png = d[0].get_pixmap(dpi=dpi).tobytes("png")
+    png = render_pages(pdf, "application/pdf", dpi=dpi)[0]
     im = Image.open(io.BytesIO(png)).convert("L")
     im = im.rotate(rnd.uniform(-4, 4), fillcolor=255, expand=False)
     px = im.load()

@@ -1,4 +1,4 @@
-# Alt-deploy image (TECH_STACK §13): python:3.11-slim + libGL/glib (OpenCV, PyMuPDF) +
+# Alt-deploy image (TECH_STACK §13): python:3.11-slim + libGL/glib (OpenCV) +
 # postgresql-client (pg_dump / psql). CPU only — the GPU model gateway runs on the pod.
 FROM python:3.11-slim
 

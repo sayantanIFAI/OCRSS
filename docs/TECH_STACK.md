@@ -26,7 +26,7 @@ Compose deployment · **Declared only** = listed as a dependency but never impor
 | Database | PostgreSQL 16 (`jsonb`), SQLAlchemy 2 (Core), psycopg 3, Alembic |
 | Object storage | MinIO (S3-compatible), boto3 / botocore |
 | Background processing | Redis 7, Celery, watchdog, `concurrent.futures` thread pools |
-| Document imaging | PyMuPDF, OpenCV, NumPy, Pillow |
+| Document imaging | pypdfium2, OpenCV, NumPy, Pillow |
 | OCR | RapidOCR, ONNX Runtime |
 | AI / model serving | Qwen2.5-VL-7B-Instruct (+3B fallback), PyTorch + CUDA, Hugging Face transformers, accelerate, qwen-vl-utils, einops, sentencepiece, httpx; vLLM + XGrammar (dormant) |
 | Structured-output safety | JSON Schema (`jsonschema` + `referencing`) |
@@ -208,11 +208,18 @@ Compose deployment · **Declared only** = listed as a dependency but never impor
 
 ## 6. Document imaging (S1 ingest & normalize)
 
-### PyMuPDF (`pymupdf`) — Active
-- **What:** Python bindings for MuPDF, a fast PDF/document renderer.
-- **Why:** Turns PDFs and multi-page files into page images at a fixed DPI for OCR and the VLM.
-- **Where:** `ingest/pages.py` (`import pymupdf as fitz`); `CDI_PAGE_DPI` (default 200).
+### pypdfium2 (`pypdfium2`) — Active
+- **What:** Python bindings for PDFium, the PDF renderer used by Chromium.
+- **Why:** Turns PDFs into page images at a fixed DPI for OCR and the VLM. Licence: pypdfium2 is
+  Apache-2.0 and PDFium is Apache-2.0 or BSD-3-Clause, so it can ship in a closed commercial
+  product (it replaced a PDF library that is AGPL-3.0 or paid-licence only). The wheels bundle
+  the PDFium binary; keep its licence files (`LICENSE-PDFium.txt`) with any distribution.
+- **Where:** `ingest/pages.py` (`render_pages`, one PNG per page, `ceil(points * dpi / 72)` pixels);
+  `CDI_PAGE_DPI` (default 200). PDFium is not thread-safe, so every call into it is serialised by a
+  module lock; PNG encoding runs outside the lock. A corrupt, encrypted or oversized PDF raises
+  `PdfReadError` (an `UnsupportedDocument`, so the API answers 4xx, never 5xx).
 - **When:** Once per uploaded document during S1 ingest.
+- **Test fixtures:** `ingest/pdfgen.py` writes small synthetic PDFs by hand (no PDF library needed).
 
 ### OpenCV (`opencv-python-headless`) — Active
 - **What:** Computer-vision / image-processing library (headless build, no GUI).
@@ -534,7 +541,7 @@ Compose deployment · **Declared only** = listed as a dependency but never impor
 |---|---|---|
 | Upload / job | web app (:8888) | FastAPI, Uvicorn, python-multipart, ThreadPoolExecutor, PostgreSQL |
 | Folder-watch intake | watcher + worker | watchdog, Celery, Redis |
-| S1 Ingest & normalize | CPU | PyMuPDF, OpenCV, NumPy, Pillow, SHA-256, MinIO/boto3, PostgreSQL |
+| S1 Ingest & normalize | CPU | pypdfium2, OpenCV, NumPy, Pillow, SHA-256, MinIO/boto3, PostgreSQL |
 | S3 OCR (runs before S2) | CPU (+GPU for handwriting) | RapidOCR, ONNX Runtime; Qwen2.5-VL via the gateway for handwriting |
 | S2 Classify | CPU heuristic (+GPU fallback) | Python keyword scoring; Qwen2.5-VL when ambiguous; JSON Schema |
 | S4 Extract | GPU | Model gateway (FastAPI) → transformers/PyTorch → Qwen2.5-VL; httpx; JSON Schema repair |
@@ -559,7 +566,7 @@ this repo today; the block IDs are in `backlog 1.md` (features) and `backlog inf
 | OPD front desk: WhatsApp upload | WhatsApp Business API | Planned (E15-S1) |
 | Canonical intake API: validate, persist, enqueue, ACK | FastAPI + MinIO + Postgres | Partly built: persists and ACKs today, but jobs run on an in-process pool (E9-S1, E9-S3, E1-S9) |
 | Object storage + queue | MinIO / boto3; Celery + Redis | MinIO **Active**; Celery/Redis only on the folder-watch path (E9-S1) |
-| CDI CPU workers: preprocess + OCR | PyMuPDF, OpenCV, RapidOCR, ONNX Runtime | **Active** |
+| CDI CPU workers: preprocess + OCR | pypdfium2, OpenCV, RapidOCR, ONNX Runtime | **Active** |
 | CDI CPU workers: extract | Deterministic/template parser | Planned (E2-S9) |
 | Confidence gate 1 | Per-field OCR/extract confidence, per-class thresholds | Planned (E2-S9, thresholds E4-S3) |
 | CDI escalation GPU | Qwen2.5-VL-7B (bf16) via mlserve on the **Blackwell 32 GB** | **Active** (used for every document today) |

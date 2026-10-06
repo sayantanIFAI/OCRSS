@@ -9,6 +9,7 @@ from sqlalchemy import text
 
 from cdi_adapter import repo
 from cdi_adapter.db import session_scope
+from cdi_adapter.ingest.pages import PdfReadError
 from cdi_adapter.ingest.service import ingest_bytes
 from cdi_adapter.storage import get_store, original_key
 from tests.helpers import lined_page, make_pdf, png_bytes
@@ -78,7 +79,7 @@ def test_concurrent_duplicate_upload_is_race_safe(app_env):
 
 def test_corrupt_pdf_marks_error_and_fails_run(app_env):
     raw = b"%PDF-1.4 corrupt " + b"x" * 64
-    with pytest.raises(Exception):  # noqa: B017
+    with pytest.raises(PdfReadError):
         ingest_bytes(raw, "broken.pdf")
     with session_scope() as c:
         doc = c.execute(

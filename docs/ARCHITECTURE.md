@@ -176,7 +176,7 @@ ingest-only API; `cdi_adapter.ingest.watcher` watches a drop folder.
 > classifier reads real OCR text and the page is never OCR'd twice. The S-numbers
 > below are stage identities, not run order.
 
-| S1 | Ingest & normalize | `ingest/pages.py`, `ingest/service.py` | PyMuPDF render; OpenCV deskew (min-area-rect) + denoise + CLAHE; SHA-256 dedupe (race-safe: `IntegrityError` → reuse existing row) | `source_document`, `document_page`, original+pages → MinIO |
+| S1 | Ingest & normalize | `ingest/pages.py`, `ingest/service.py` | pypdfium2 render; OpenCV deskew (min-area-rect) + denoise + CLAHE; SHA-256 dedupe (race-safe: `IntegrityError` → reuse existing row) | `source_document`, `document_page`, original+pages → MinIO |
 | S2 | Classify | `classify/service.py`, `classify/prompt.py` | **scored keyword heuristic** over the S3 OCR text (`_heuristic_classify`): a type only when it scores ≥5 *and* leads the runner-up by ≥3 on a legible page (≥180 chars, ≥75% alnum); otherwise Qwen2.5-VL, schema `classification.v1` | `doc_classification` |
 | S3 | OCR / layout | `ocr/service.py`, `ocr/rapid.py`, `ocr/vlm_ocr.py` | **runs before classify.** printed → RapidOCR (boxes+conf+reading order); a page the classifier later calls handwritten gets a second VLM-transcription pass that replaces the blocks. `ocr_document(force_engine="rapidocr"|"vlm")` | `ocr_block` |
 | S4 | Extract | `extract/service.py`, `extract/prompt.py` | Qwen2.5-VL, schema-locked JSON per `doc_type`, evidence = OCR block ids; **repair + one retry + lenient fallback** (marks `_partial`); re-extract purges the prior attempt's rows first | `extraction`, `clinical_fact` (+ `medication_detail`), `fact_provenance`, `patient_identity`, `encounter` |
@@ -455,7 +455,7 @@ Customer 360 (`/reviewer/c360`) is backlog E7-S8.
 2. Store original bytes → `s3://cdi-documents/documents/<sha[:2]>/<sha>/original.<ext>`.
 3. Insert `source_document` (status `received`), audit `create`.
 4. Open `pipeline_run(stage='ingest')`.
-5. `render_pages(raw, mime)` — PyMuPDF for PDF (one PNG/page at `CDI_PAGE_DPI`=200),
+5. `render_pages(raw, mime)` — pypdfium2 for PDF (one PNG/page at `CDI_PAGE_DPI`=200),
    Pillow for images, multi-frame TIFF supported.
 6. `normalize_image(png)` per page: grayscale → **deskew** (`cv2.minAreaRect` on
    Otsu-thresholded ink pixels; rotate if `0.15° < |skew| ≤ 15°`) → `fastNlMeansDenoising`
