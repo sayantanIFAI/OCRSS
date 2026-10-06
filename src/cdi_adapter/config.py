@@ -122,6 +122,11 @@ class Settings(BaseSettings):
     # LLM.int8, only for a test host below the 24 GB bar (docs/fallback-host.md): the 7B's bf16
     # weights (~16 GB) do not fit a 15 GB T4. start_mlserve.sh installs the pinned bitsandbytes.
     vlm_quantize: Literal["", "8bit"] = ""
+    # The OOM fallback (Qwen2-VL-7B) is as large as the primary: in bf16
+    # it would run out of memory in exactly the situation it exists for, so it loads in 8-bit by
+    # default (hf backend; "" = bf16, for a host that can hold two bf16 7B models in turn). Not
+    # measured on the target GPU yet: docs/fallback-model.md.
+    vlm_fallback_quantize: Literal["", "8bit"] = "8bit"
     # vllm backend (backlog E2-S1, §3.4): 32 GB = ~15 GB weights + ~12-14 GB KV cache
     # -> 3-4 concurrent page extractions
     vllm_gpu_memory_utilization: float = Field(default=0.88, gt=0, le=0.98)
@@ -175,6 +180,10 @@ class Settings(BaseSettings):
     gate_auto_accept_conf: float = Field(default=0.985, ge=0, le=1)
     gate_audit_conf: float = Field(default=0.95, ge=0, le=1)
     gate_review_floor: float = Field(default=0.85, ge=0, le=1)
+    # Facts read by the OOM fallback model are never auto-accepted: it is an older model generation,
+    # loaded in 8-bit, and has not been benchmarked on handwritten prescriptions. Turn this off only
+    # after the benchmark in docs/fallback-model.md shows parity with the primary.
+    gate_fallback_review: bool = True
     gate_partial_penalty: float = Field(default=0.30, ge=0, le=1)
     audit_sample_rate: float = Field(default=0.05, ge=0, le=1)
     # E4-S2: the fitted calibrator the gate decides with (a calibration_model version). Unset:

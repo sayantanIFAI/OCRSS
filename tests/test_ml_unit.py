@@ -433,15 +433,20 @@ def test_hf_loads_bf16_by_default_and_int8_only_when_asked(monkeypatch):
         Settings(_env_file=None, vlm_quantize="4bit")  # only what a host has been checked with
 
 
-def test_start_mlserve_installs_the_pinned_bitsandbytes_only_for_8bit():
+def test_start_mlserve_installs_the_pinned_bitsandbytes_for_8bit_and_best_effort_for_the_fallback():
     from pathlib import Path
 
     runpod = Path(__file__).resolve().parents[1] / "infra" / "runpod"
     start = (runpod / "start_mlserve.sh").read_text(encoding="utf-8")
     pins = (runpod / "versions.env").read_text(encoding="utf-8")
-    assert '[ "${CDI_VLM_QUANTIZE:-}" = "8bit" ]' in start
-    assert "--no-deps --require-hashes" in start
-    assert "bitsandbytes==$BITSANDBYTES_VERSION --hash=sha256:$BITSANDBYTES_SHA256" in start
+    assert '[ "${CDI_VLM_QUANTIZE:-}" = "8bit" ]' in start  # explicit request: strict
+    # the OOM fallback loads 8-bit by default: the same pinned wheel, but a failure only warns
+    assert '[ "${CDI_VLM_FALLBACK_QUANTIZE-8bit}" = "8bit" ]' in start
+    assert '|| echo "warning: bitsandbytes not installed' in start
+    assert start.count("--no-deps --require-hashes") == 2
+    assert (
+        start.count("bitsandbytes==$BITSANDBYTES_VERSION --hash=sha256:$BITSANDBYTES_SHA256") == 2
+    )
     assert "\nBITSANDBYTES_VERSION=0.50.2\n" in pins
     assert re.search(r"\nBITSANDBYTES_SHA256=[0-9a-f]{64}\n", pins)
 
@@ -468,3 +473,73 @@ def test_stub_keeps_a_medication_when_ocr_joins_form_name_and_strength():
     assert meds[0]["strength"] == {"value": 5.0, "unit": "mg"}
     assert meds[0]["evidence"] == ["b7"]
     assert _medications([("b1", "Table of results")]) == []
+
+
+# ----------------------------------------------- security: patient values never reach the logs
+
+
+def test_error_locations_drop_the_quoted_value_but_keep_where_it_failed():
+    from cdi_adapter.ml.client import error_locations
+
+    errors = [
+        "tests/0/value: 'Anil Mehra' is not of type 'number'",
+        "<root>: 'secret' was unexpected",
+        "no JSON object found in model output",
+    ]
+    assert error_locations(errors) == [
+        "tests/0/value",
+        "<root>",
+        "no JSON object found in model output",
+    ]
+    assert error_locations(errors, limit=1) == ["tests/0/value"]
+
+
+def test_vlm_json_logs_where_validation_failed_never_the_patient_value(monkeypatch):
+    """The schema message quotes the bad value; the retry and partial log lines must not."""
+    seen: list[tuple[str, dict]] = []
+    monkeypatch.setattr(mc.log, "info", lambda event, **kw: seen.append((event, kw)))
+    monkeypatch.setattr(mc.log, "warning", lambda event, **kw: seen.append((event, kw)))
+
+    phi = "Anil Mehra 9876543210"
+    # a list where the schema wants a string: the jsonschema message quotes it
+    bad = json.dumps({"tests": [{"name": [phi], "value": 5}], "confidence": 0.9})
+    c = ScriptedClient([bad, bad])
+    out = c.vlm_json(None, "p", "lab_report.v3", retries=1)
+    assert out["_partial"] is True
+    events = {event: kw for event, kw in seen if event in ("vlm_json_retry", "vlm_json_partial")}
+    assert set(events) == {"vlm_json_retry", "vlm_json_partial"}
+    assert "Anil" not in repr(seen) and "9876543210" not in repr(seen)
+    for kw in events.values():
+        assert kw["error_at"] == ["tests/0/name"] and kw["n_errors"] == 1 and "errors" not in kw
+    # the stored payload keeps the full messages for the (access-controlled) reviewer
+    assert any(phi in m for m in out["_errors"])
+
+
+def test_repair_keeps_plain_key_names_in_the_log_and_redacts_free_text_ones(monkeypatch):
+    """A key the model made up can itself hold a patient value: only identifier-shaped names are
+    logged, anything else is replaced."""
+    seen: list[tuple[str, dict]] = []
+    monkeypatch.setattr(mc.log, "warning", lambda event, **kw: seen.append((event, kw)))
+    phi = "Anil Mehra 9876543210"
+    payload = {
+        "tests": [{"name": "HbA1c", "value": 5}],
+        "confidence": 0.9,
+        phi: 1,
+        "hospital_stamp": 2,
+    }
+    mc.repair_payload(payload, "lab_report.v3")
+    assert [e for e, _ in seen] == ["repair_dropped_keys"]
+    keys = seen[0][1]["keys"]
+    assert sorted(keys) == ["<redacted>", "hospital_stamp"]
+    assert "Anil" not in repr(seen) and "9876543210" not in repr(seen)
+
+
+def test_safe_key_names():
+    assert mc.safe_key_names(["hospital_stamp", "a1", "Patient Name", "x" * 41, "name:1", ""]) == [
+        "hospital_stamp",
+        "a1",
+        "<redacted>",
+        "<redacted>",
+        "<redacted>",
+        "<redacted>",
+    ]

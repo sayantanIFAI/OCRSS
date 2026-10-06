@@ -31,6 +31,16 @@ if [ "${CDI_VLM_QUANTIZE:-}" = "8bit" ] && ! "$PY" -c "import bitsandbytes" 2>/d
   "$PY" -m pip install -q --no-deps --require-hashes -r <(
     echo "bitsandbytes==$BITSANDBYTES_VERSION --hash=sha256:$BITSANDBYTES_SHA256")
 fi
+# The OOM fallback model loads in 8-bit by default (CDI_VLM_FALLBACK_QUANTIZE) and needs the same
+# pinned wheel. Best effort: a host that cannot install it still starts; only the fallback's 8-bit
+# load would then fail (no fallback), exactly as before this setting existed.
+if [ "${CDI_MLSERVE_BACKEND:-stub}" = "hf" ] && [ "${CDI_VLM_QUANTIZE:-}" != "8bit" ] \
+   && [ "${CDI_VLM_FALLBACK_QUANTIZE-8bit}" = "8bit" ] && ! "$PY" -c "import bitsandbytes" 2>/dev/null; then
+  . "$REPO/infra/runpod/versions.env"
+  "$PY" -m pip install -q --no-deps --require-hashes -r <(
+    echo "bitsandbytes==$BITSANDBYTES_VERSION --hash=sha256:$BITSANDBYTES_SHA256") \
+    || echo "warning: bitsandbytes not installed; the OOM fallback model cannot load in 8-bit"
+fi
 # Background the command itself, not a `cd && ...` list: a backgrounded list runs in a subshell that
 # keeps this script's stdout open for the server's lifetime, so a caller reading our output (a
 # notebook cell, `$(...)`, a pipe) never sees EOF and hangs.

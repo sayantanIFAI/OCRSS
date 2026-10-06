@@ -57,9 +57,10 @@ batch is split into single calls (E2-S8), a single call fails and is retried by 
 
 1. See where it happened, on the gateway's metrics:
    `curl -s 127.0.0.1:8077/metrics | grep cdi_vlm_oom_total` (the `where` label):
-   - `load`: the primary did not fit and the **fallback (Qwen2-VL-7B) is now serving**: an older
-     model, so quality may be lower, and it needs as much memory as the primary (if it did not
-     fit either, no model is served). Check
+   - `load`: the primary did not fit and the **fallback (Qwen2-VL-7B) is now serving**. It loads
+     in 8-bit (`CDI_VLM_FALLBACK_QUANTIZE`) because in bf16 it needs as much memory as the primary,
+     it is an older model, and **everything it reads is held for review** (see point 3). If it
+     did not fit either, no model is served (see [fallback-model.md](fallback-model.md)). Check
      `curl -s 127.0.0.1:8077/healthz` (`model`). Find what else holds GPU memory (`nvidia-smi`) and
      restart the gateway (`bash infra/runpod/start_mlserve.sh` after stopping it) so the 7B loads.
    - `batch`: batches are too large for the free memory. Lower `CDI_EXTRACT_BATCH_MAX` (E2-S8)
@@ -69,7 +70,9 @@ batch is split into single calls (E2-S8), a single call fails and is retried by 
 2. **Grafana → "GPU memory"**: memory near the total with no traffic means a leak or another
    process; `nvidia-smi` names it.
 3. Documents extracted by the fallback while it served are marked with that model in their provenance
-   (`extraction.model_name`); nothing extra is needed, the gate treats them the same.
+   (`extraction.model_name`). The review gate never auto-accepts a fact read by the fallback
+   (`CDI_GATE_FALLBACK_REVIEW`, default on): each one goes to a person with the finding
+   `fallback-model`, so expect a burst of review tasks until the primary is serving again.
 
 ## CdiQueueBacklog
 

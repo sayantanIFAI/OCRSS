@@ -155,6 +155,25 @@ def validate_schema(payload: Any, name: str) -> list[str]:
     return [f"{'/'.join(map(str, e.absolute_path)) or '<root>'}: {e.message}" for e in errors]
 
 
+_KEY_NAME = re.compile(r"[a-z][a-z0-9_]{0,39}")
+
+
+def safe_key_names(keys: list[str]) -> list[str]:
+    """Key names fit for a log line: a plain identifier (``hospital_stamp``) is kept, anything else
+    becomes ``<redacted>``. The model chose these names, and one that is free text can quote a
+    patient value (``{"Anil Mehra 98765...": 1}``)."""
+    return [k if _KEY_NAME.fullmatch(k) else "<redacted>" for k in keys]
+
+
+def error_locations(errors: list[str], limit: int = 5) -> list[str]:
+    """Where validation failed (``tests/0/value``), without the messages, for logs.
+
+    A jsonschema message quotes the offending value (``'Anil Mehra' is not of type 'number'``),
+    which can be patient data; logs are shipped to Loki and must never carry it. The messages stay
+    in the extraction payload (``_errors``) and in the retry prompt, which are access-controlled."""
+    return [e.split(": ", 1)[0][:80] for e in errors[:limit]]
+
+
 # ------------------------------------------------------------------ JSON extraction
 
 
@@ -428,8 +447,8 @@ def repair_payload(payload: dict[str, Any], name: str) -> dict[str, Any]:
             out[target] = v
         elif v not in (None, "", [], {}):
             dropped.append(k)
-    if dropped:  # key names only: the values are patient data
-        log.warning("repair_dropped_keys", schema=name, keys=dropped)
+    if dropped:  # key names only, never values; a free-text name is redacted (see safe_key_names)
+        log.warning("repair_dropped_keys", schema=name, keys=safe_key_names(dropped))
 
     for key, node in props.items():
         if key not in out:
@@ -569,11 +588,13 @@ class MLClient:
                 f"{prompt}\n\nYour previous answer was invalid ({'; '.join(errors[:5])}). "
                 "Return ONLY one JSON object that matches the schema."
             )
-            log.info("vlm_json_retry", schema=schema, attempt=attempt + 1, errors=errors[:5])
+            log.info("vlm_json_retry", schema=schema, attempt=attempt + 1,
+                     error_at=error_locations(errors), n_errors=len(errors))  # fmt: skip
         partial = copy.deepcopy(best) if best is not None else {}
         partial["_partial"] = True
         partial["_errors"] = errors[:20]
-        log.warning("vlm_json_partial", schema=schema, errors=errors[:5])
+        log.warning("vlm_json_partial", schema=schema, error_at=error_locations(errors),
+                    n_errors=len(errors))  # fmt: skip
         return partial
 
 

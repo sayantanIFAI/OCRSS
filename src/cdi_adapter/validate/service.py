@@ -95,6 +95,25 @@ def gate(fact_type: str, conf: float, findings: list[Finding], partial: bool,
     return "in_review"
 
 
+def fallback_hold(state: str, served_model: str | None, s: Settings) -> tuple[str, Finding | None]:
+    """Facts read by the OOM fallback model are never auto-accepted (``gate_fallback_review``).
+
+    The fallback is another model generation, loaded in 8-bit, and not yet benchmarked on
+    handwritten prescriptions, so a person looks at everything it read. Only an automatic
+    acceptance is overridden: a fact already in review stays there, and the reviewer sees why."""
+    if (
+        state == "auto_accepted"
+        and s.gate_fallback_review
+        and served_model
+        and served_model != s.vlm_model_id
+        and served_model == s.vlm_fallback_model_id
+    ):
+        return "in_review", Finding(
+            "blocker", "fallback-model", f"read by the fallback model {served_model}"
+        )
+    return state, None
+
+
 def _task_kind(held: list[dict[str, Any]]) -> str:
     codes = {f["code"] for h in held for f in h["findings"]}
     if any(c.startswith("med-") for c in codes):
@@ -190,6 +209,10 @@ def _validate(conn: Connection, doc_id: str, s: Settings,
              "WHERE :d = ANY(source_doc_ids))"), {"d": doc_id}
     )  # fmt: skip
 
+    served_model = conn.execute(
+        text("SELECT model_name FROM extraction WHERE document_id = :d "
+             "ORDER BY created_at DESC LIMIT 1"), {"d": doc_id}
+    ).scalar_one_or_none()  # fmt: skip
     facts = repo.get_facts_for_document(conn, doc_id)
     # E15-S2: the engine's own per-field readings, to judge against the clinical field grammars
     med_readings = fieldgrammar.readings_by_drug(ext)
@@ -273,6 +296,10 @@ def _validate(conn: Connection, doc_id: str, s: Settings,
             findings.append(held_by)
             gate_findings.append(held_by)
             state = "in_review"
+        state, by_model = fallback_hold(state, served_model, s)  # the OOM fallback: always a person
+        if by_model is not None:
+            findings.append(by_model)
+            gate_findings.append(by_model)
         resolution.log_decision(conn, document_id=doc_id, run_id=run_id, seq=len(confidences),
                                 fact_id=f["id"], decision=decision, confidence=score)  # fmt: skip
         confidences.append((f["fact_type"], conf))

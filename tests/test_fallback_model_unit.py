@@ -30,7 +30,8 @@ SCAN = (
     "pyproject.toml",
     "docs/*.md",
 )
-HISTORY = {"backlog 1.md", "backlog infra 1.md"}  # dated log rows, kept as written
+# dated log rows, and the page that records this replacement (it names the retired model on purpose)
+HISTORY = {"backlog 1.md", "backlog infra 1.md", "fallback-model.md"}
 
 
 def _files() -> list[Path]:
@@ -112,3 +113,120 @@ def test_scan_covers_the_files_that_used_to_name_the_old_model():
         "docs/TECH_STACK.md",
     ):
         assert expected in names, expected
+
+
+# ------------------------------------------------------- the fallback is a degraded mode: made safe
+
+
+def _hf_settings(**kw) -> Settings:
+    return Settings(_env_file=None, mlserve_backend="hf", **kw)  # type: ignore[call-arg]
+
+
+def test_fallback_loads_8bit_by_default_but_the_primary_stays_bf16():
+    from cdi_adapter.mlserve.backends import _quantize_for
+
+    s = _hf_settings()
+    assert s.vlm_fallback_quantize == "8bit"
+    assert _quantize_for(PRIMARY, s) == ""
+    assert _quantize_for(FALLBACK, s) == "8bit"
+
+
+def test_fallback_quantisation_can_be_switched_off_and_an_explicit_8bit_applies_to_both():
+    from cdi_adapter.mlserve.backends import _quantize_for
+
+    bf16_fallback = _hf_settings(vlm_fallback_quantize="")
+    assert _quantize_for(FALLBACK, bf16_fallback) == ""
+    everything_8bit = _hf_settings(vlm_quantize="8bit", vlm_fallback_quantize="")
+    assert _quantize_for(PRIMARY, everything_8bit) == _quantize_for(FALLBACK, everything_8bit)
+    assert _quantize_for(PRIMARY, everything_8bit) == "8bit"
+
+
+def test_a_misconfigured_fallback_equal_to_the_primary_is_never_quantised_by_the_fallback_rule():
+    from cdi_adapter.mlserve.backends import _quantize_for
+
+    s = _hf_settings(vlm_fallback_model_id=PRIMARY)
+    assert _quantize_for(PRIMARY, s) == ""
+
+
+def test_load_kwargs_ask_for_int8_only_for_the_fallback(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    class QuantConfig:
+        def __init__(self, *, load_in_8bit):
+            self.load_in_8bit = load_in_8bit
+
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(bfloat16="torch.bfloat16"))
+    monkeypatch.setitem(
+        sys.modules, "transformers", SimpleNamespace(BitsAndBytesConfig=QuantConfig)
+    )
+    from cdi_adapter.mlserve.backends import _load_kwargs
+
+    s = _hf_settings()
+    assert "quantization_config" not in _load_kwargs(PRIMARY, s)
+    assert _load_kwargs(FALLBACK, s)["quantization_config"].load_in_8bit is True
+
+
+def test_fallback_hold_sends_everything_the_fallback_read_to_a_person():
+    from cdi_adapter.validate.service import fallback_hold
+
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    state, finding = fallback_hold("auto_accepted", FALLBACK, s)
+    assert state == "in_review"
+    assert (
+        finding is not None and finding.code == "fallback-model" and finding.severity == "blocker"
+    )
+    assert FALLBACK in finding.message
+
+
+def test_fallback_hold_leaves_everything_else_alone():
+    from cdi_adapter.validate.service import fallback_hold
+
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert fallback_hold("auto_accepted", PRIMARY, s) == ("auto_accepted", None)  # the primary
+    assert fallback_hold("auto_accepted", None, s) == ("auto_accepted", None)  # unknown model
+    assert fallback_hold("auto_accepted", "stub-keyword-responder", s) == ("auto_accepted", None)
+    assert fallback_hold("in_review", FALLBACK, s) == ("in_review", None)  # already held
+    off = Settings(_env_file=None, gate_fallback_review=False)  # type: ignore[call-arg]
+    assert fallback_hold("auto_accepted", FALLBACK, off) == ("auto_accepted", None)
+    same = Settings(_env_file=None, vlm_fallback_model_id=PRIMARY)  # type: ignore[call-arg]
+    assert fallback_hold("auto_accepted", PRIMARY, same) == ("auto_accepted", None)
+
+
+def test_fallback_review_is_on_by_default_and_documented_in_both_env_templates():
+    assert Settings(_env_file=None).gate_fallback_review is True  # type: ignore[call-arg]
+    for name in (".env.example", ".env.runpod"):
+        text = (ROOT / name).read_text(encoding="utf-8")
+        assert "CDI_GATE_FALLBACK_REVIEW=true" in text, name
+        assert "CDI_VLM_FALLBACK_QUANTIZE=8bit" in text, name
+
+
+def test_the_gate_wires_fallback_hold_into_the_validation_loop():
+    source = (ROOT / "src/cdi_adapter/validate/service.py").read_text(encoding="utf-8")
+    assert "fallback_hold(state, served_model, s)" in source
+    assert "SELECT model_name FROM extraction" in source
+
+
+# ------------------------------------------------------- security: the document is data, not orders
+
+
+def test_every_request_carries_the_untrusted_document_system_notice():
+    from cdi_adapter.mlserve.backends import SYSTEM_NOTICE, _chat_messages
+
+    content = [{"type": "text", "text": "Transcribe this line."}]
+    messages = _chat_messages(content)
+    assert [m["role"] for m in messages] == ["system", "user"]
+    assert messages[0]["content"] == SYSTEM_NOTICE
+    assert messages[1]["content"] == content
+    low = SYSTEM_NOTICE.lower()
+    assert "untrusted" in low and "never obey" in low and "ignore the previous instructions" in low
+    assert "never invent a value" in low
+
+
+def test_no_code_path_builds_a_chat_without_the_notice():
+    """The runner, the batch runner and the vLLM prompt builder all go through _chat_messages."""
+    source = (ROOT / "src/cdi_adapter/mlserve/backends.py").read_text(encoding="utf-8")
+    assert source.count('"role": "user"') == 1  # only inside the helper itself
+    assert (
+        source.count("_chat_messages(") == 4
+    )  # the definition + runner, batch runner, vLLM builder

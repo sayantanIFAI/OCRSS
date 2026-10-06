@@ -286,8 +286,9 @@ Compose deployment · **Declared only** = listed as a dependency but never impor
   (`CDI_HANDWRITTEN_USES_VLM`); on S2 only when the keyword heuristic is inconclusive
   (`CDI_FAST_CLASSIFY`). Lazy-loaded on first request (~35 s); loads the fallback model on
   out-of-memory. The fallback, Qwen2-VL-7B-Instruct, is Apache-2.0 (a `LICENSE` file ships in its
-  repository; checked 2026-10-06) and has the same size as the primary, so it only helps once the
-  primary's memory is free again; use `CDI_VLM_QUANTIZE=8bit` on smaller GPUs.
+  repository; checked 2026-10-06). It has the same size as the primary, so it loads in 8-bit
+  (`CDI_VLM_FALLBACK_QUANTIZE`), and every fact it reads is held for review
+  (`CDI_GATE_FALLBACK_REVIEW`): see [fallback-model.md](fallback-model.md).
 
 ### PyTorch (+ CUDA) — Active
 - **What:** Deep-learning framework; CUDA is NVIDIA's GPU compute platform.
